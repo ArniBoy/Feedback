@@ -198,13 +198,6 @@ def run(x_train, y_train, x_test, y_test):
             print('\tnegative: %f' % neu_f1)
 
 
-from subprocess import call
-
-print(call(['curl', 'http://serelex.cental.be/find/norm60-corpus-all/violence']))
-
-
-exit()
-
 # load data
 classes = POS | NEU | NEG
 train_loc = '/home/arne/Masterarbeit/git_code/FeedbackFramework/twitterData/' \

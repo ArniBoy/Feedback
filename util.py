@@ -4,6 +4,7 @@ __author__ = 'Arne'
 
 import os
 import codecs
+from subprocess import call
 
 root = '/Users/Ceca/Arne/Data/Corpora/'
 html_dict = {u'&quot;': u'"', u'&amp;': u'&', u'&lt;': u'<', u'&gt;': u'>',
@@ -81,3 +82,13 @@ def fix_html(doc):
     with codecs.open(doc, 'w', encoding='utf-8') as sink:
         for line in fixed:
             sink.write(line)
+
+
+def get_serelex_cluster(keyword):
+    """
+    Collects a word cluster from the serelex cluster implementation. No pre processing is done, so a raw json object as
+    string is returned
+    :param keyword: Central cluster word
+    :return: Cluster, plus distance measures
+    """
+    return call(['curl', 'http://serelex.cental.be/find/norm60-corpus-all/%s' % keyword])
