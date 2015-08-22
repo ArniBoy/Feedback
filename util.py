@@ -92,3 +92,15 @@ def get_serelex_cluster(keyword):
     :return: Cluster, plus distance measures
     """
     return call(['curl', 'http://serelex.cental.be/find/norm60-corpus-all/%s' % keyword])
+
+
+clusters = {}
+for line in open('/Users/Ceca/Arne/Data/logs/cluster.txt'):
+    line = int(line.strip())
+    if line in clusters:
+        clusters[line] += 1
+    else:
+        clusters[line] = 1
+
+for key in clusters.keys():
+    print('%i: %i' % (key, clusters[key]))

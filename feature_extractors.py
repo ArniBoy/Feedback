@@ -266,6 +266,25 @@ class AllCapsFeatures(BaseEstimator, TransformerMixin):
         return features
 
 
+class LengthFeatures(BaseEstimator, TransformerMixin):
+    """
+    Mini feature, some length related information for the tweet.
+    """
+    def fit(self, x, y=None):
+        return self
+
+    def transform(self, tweets):
+        features = numpy.zeros((len(tweets), 3))
+        for count, tweet in enumerate(tweets):
+            for word in tweet.split(u' '):
+                features[count, 0] += 1
+                word_length = len(word)
+                features[count, 1] += word_length
+                features[count, 2] = word_length if word_length > features[count, 2] else features[count, 2]
+            features[count, 1] /= float(len(features[count, 0]))
+        return features
+
+
 class HashtagFeatures(BaseEstimator, TransformerMixin):
     """
     Mini feature, gives number of hasthags in a tweet.
@@ -366,7 +385,7 @@ class PunctuationFeatures(BaseEstimator, TransformerMixin):
 
 class PosFeatures(BaseEstimator, TransformerMixin):
     """
-    Gives a simple count vector of part of speech tags.
+    Gives a simple count vector for part of speech tags.
     """
     tags = {'N': 0, 'O': 1, '^': 2, 'S': 3, 'Z': 4, 'V': 5, 'A': 6, 'R': 7,
             '!': 8, 'D': 9, 'P': 10, '&': 11, 'T': 12, 'X': 13, '#': 14,
