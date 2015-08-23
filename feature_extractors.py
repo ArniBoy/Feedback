@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 __author__ = 'Arne Recknagel'
 
+import logging
 import os
 import re
 import gzip
 import numpy
 import threading
-import logging
 from os.path import join
 
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -61,7 +61,6 @@ class TfidfVectorizerWrapper(TfidfVectorizer):
     overload sklearn transformers, so it stays.
     """
     def transform(self, tweets, copy=True):
-        print([tweets[0]])
         #  tweets = [tweet.lower() for tweet in tweets]
         return TfidfVectorizer.transform(self, tweets, copy)
 
@@ -151,7 +150,8 @@ class LexFeatures(BaseEstimator, TransformerMixin):
         """
         Lexical feature scoring function, as defined in Mohammad et. al. (2014)
         :param sent_dict: Sentiment dictionary
-        :param tokens: Token list, either uni- or bi-gram
+        :param tokens: Token list, containing alle uni-, bi-, and skip-gram found
+        in the target tweet
         :return: tuple of 4 scores
         """
         pos_count = 0
@@ -168,7 +168,7 @@ class LexFeatures(BaseEstimator, TransformerMixin):
         return pos_count, sum_score, max_score, last_pos
 
     def transform(self, tweets):
-        NotImplementedError("Class %s doesn't implement aMethod()" %
+        NotImplementedError("Class %s doesn't implement " %
                             (self.__class__.__name__,))
 
 

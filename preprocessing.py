@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 __author__ = 'Arne Recknagel'
 
+import logging
 from codecs import open
 import random
 import re
-import logging
 
 # possible sentiment labels used as flags
 POS = 1

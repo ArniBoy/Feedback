@@ -2,13 +2,14 @@
 # -*- coding: utf-8 -*-
 __author__ = 'Arne Recknagel'
 
+import logging
 from codecs import open
 from random import shuffle
-import logging
 import numpy as np
 
 from preprocessing import get_tweet
 from external_sources import SentMutate
+from toy_classifier import root
 
 
 class Feeder:
@@ -16,10 +17,11 @@ class Feeder:
     Class which encapsulates the feedback module. Currently, only a 50.000 sized
     subset is loaded.
     """
-    def __init__(self, corpus_loc):
+    def __init__(self, corpus_loc, limit=20000):
         """
         Constructor for a Feeder instance
         :param corpus_loc: Location of the sent140 corpus
+        :param limit: Cutoff for testing, lower value improves speed
         """
         self.current_idx = 0
         self.corpus = {}
@@ -27,7 +29,7 @@ class Feeder:
         try:
             for count, e in enumerate(open(corpus_loc, 'r', 'utf-8')):
                 count += 1
-                if count > 5000:  # restrict input to a few tweets, not all yet
+                if count > limit:  # restrict input to a few tweets, not all yet
                     break
                 self.corpus[count] = '\t'.join(get_tweet(e)[1:])
         except UnicodeDecodeError:

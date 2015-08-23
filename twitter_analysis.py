@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from __future__ import print_function
 __author__ = 'Arne Recknagel'
 
 # basic library
@@ -19,7 +20,6 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.grid_search import GridSearchCV
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.metrics import f1_score, accuracy_score
-from sklearn.preprocessing import StandardScaler
 from feature_extractors import ItemSelector, DataSeparator, PosFeatures,\
     AllCapsFeatures, HashtagFeatures, PunctuationFeatures, ElongatedFeatures,\
     EmoticonFeatures, SENTFeatures, NRCFeatures

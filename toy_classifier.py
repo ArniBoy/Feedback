@@ -1,8 +1,12 @@
-from __future__ import print_function
-__author__ = 'arne'
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+__author__ = 'Arne Recknagel'
 
 from codecs import open
 from datetime import datetime
+import logging
+FORMAT = '[%(levelname)s %(filename)s:%(lineno)s\t- %(funcName)5s()]\t%(message)s'
+logging.basicConfig(format=FORMAT, level=logging.INFO)
 
 from sklearn.svm import LinearSVC
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -18,67 +22,6 @@ from backfeed import Feeder
 from external_sources import AFinnWordList
 
 root = '/Users/Ceca/Arne/Data'
-
-
-def f_range(x, y, jump):
-    while x < y:
-        yield x
-        x += jump
-
-
-def get_semeval_data(text, meta):
-    tweets = {}
-    for line_1, line_2 in zip(open(text, 'r', 'utf-8'),
-                              open(meta, 'r', 'utf-8')):
-        tweet, pos, _, _ = line_1.strip().split('\t')
-        _, _, sent = line_2.strip().split('\t')
-        tweets['\t'.join([tweet, pos])] = sent
-    return tweets.keys(), tweets.values()
-
-
-def get_semeval13_train():
-    text = root+'/semeval2013/SemEval2013-task2-train_dev' \
-           '/original_combined-shuffle'
-    meta = root+'/semeval2013/SemEval2013-task2-train_dev' \
-           '/meta'
-    tweets = {}
-    for line_1, line_2 in zip(open(text), open(meta)):
-        tweet, pos, _, _ = line_1.strip().split('\t')
-        _, _, sent = line_2.strip().split('\t')
-        tweets[u'\t'.join([tweet, pos])] = sent
-    return tweets.items()
-
-
-def get_semeval13_test():
-    text = root+'/semeval2013/SemEval2013-task2-test' \
-           '/original_combined'
-    meta = root+'/semeval2013/SemEval2013-task2-test' \
-           '/meta'
-    tweets = {}
-    for line_1, line_2 in zip(open(text), open(meta)):
-        tweet, pos, _, _ = line_1.strip().split('\t')
-        _, _, sent = line_2.strip().split('\t')
-        print(tweet, pos, sent)
-        tweets[u'\t'.join([tweet, pos])] = sent
-    return tweets.items()
-
-
-def get_semeval14_test():
-    tweets = {}
-    for line in open(root+'/semeval2014/'
-                     'SemEval2014-task9-test-twitter2014/original_combined'):
-        data = line.strip().split('\t')
-        tweets[data[3]] = data[2]
-    return tweets.items()
-
-
-def get_semeval15_test():
-    tweets = {}
-    for line in open(root+'/semeval2015/'
-                     'SemEval2015-task10-test/original_combined'):
-        data = line.strip().split('\t')
-        tweets[data[3]] = data[2]
-    return tweets.items()
 
 
 def init_model():
@@ -151,8 +94,6 @@ def init_model():
         'features__char_ngram__tfidf__max_df': (0.75,),
         'features__char_ngram__tfidf__ngram_range': ((1, 5),),
         'svm__C': (0.5,)
-        # 'svm__C': (0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2,
-        #            3, 4, 5, 6, 7, 8, 9, 10)
     }
     return GridSearchCV(pipeline, parameters, n_jobs=-1, verbose=1)
 
@@ -171,10 +112,7 @@ def run(x_train, y_train, x_test, y_test):
         neu_f1 = f1(predicted, y_test, NEG)
         macro = 1.0/2.0*(pos_f1+neg_f1)
         log.write('0 %s %s %s %s\n' % (pos_f1, neg_f1, neu_f1, macro))
-        print('initial')
-        print('\tpositive: %f' % pos_f1)
-        print('\tneutral: %f' % neg_f1)
-        print('\tnegative: %f' % neu_f1)
+        logging.info('initial\n\tpositive: %f\n\tneutral: %f\n\tnegative: %f' % (pos_f1, neg_f1, neu_f1))
 
         # retrain routine
         feed = Feeder(root+'/Corpora/batches/tokenized.tsv')
@@ -182,11 +120,11 @@ def run(x_train, y_train, x_test, y_test):
         af_wl.add_filter_ranges(**{str(POS): (2, float('inf')),
                                    str(NEG): (float('-inf'), -2),
                                    str(NEU): (-2, 2)})
-        af_wl.add_weight(5, model.best_estimator_.named_steps['svm'].classes_)
+        af_wl.add_weight(2, model.best_estimator_.named_steps['svm'].classes_)
         feed.add_mutator(af_wl)
 
         for i in range(30):
-            print('count nr. %i' % i)
+            logging.debug('count nr. %i' % i)
             feed.add_best_n(model, 300, x_train, y_train, False, ['weight'])
 
             predicted = model.predict(x_test)
@@ -195,9 +133,9 @@ def run(x_train, y_train, x_test, y_test):
             neu_f1 = f1(predicted, y_test, NEG)
             macro = 1.0/2.0*(pos_f1+neg_f1)
             log.write('%i %s %s %s %s\n' % (i+1, pos_f1, neg_f1, neu_f1, macro))
-            print('\tpositive: %f' % pos_f1)
-            print('\tneutral: %f' % neg_f1)
-            print('\tnegative: %f' % neu_f1)
+            logging.info('\tpositive: %f' % pos_f1)
+            logging.info('\tneutral: %f' % neg_f1)
+            logging.info('\tnegative: %f' % neu_f1)
 
 
 def main():
@@ -223,4 +161,5 @@ def main():
     run(train[0], train[1], dev[0], dev[1])
 
 
-main()
+if __name__ == 'main':
+    main()

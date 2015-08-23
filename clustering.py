@@ -1,16 +1,14 @@
-from __future__ import print_function
-__author__ = 'Arne'
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+__author__ = 'Arne Recknagel'
 
-from time import time
+import logging
 import codecs
 from math import sqrt
 import numpy as np
 
 from sklearn.cluster import DBSCAN
-from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import Normalizer
 from sklearn.cluster import MiniBatchKMeans
 from sklearn import metrics
 from sklearn.pipeline import Pipeline, FeatureUnion
@@ -25,7 +23,7 @@ from preprocessing import parse, POS, NEG, NEU
 root = '/Users/Ceca/Arne/Data'
 
 
-def all_features_kmeans():
+def k_means_pipeline(k):
     features = FeatureUnion(
         transformer_list=[
             ('word_ngram', Pipeline([
@@ -85,8 +83,7 @@ def all_features_kmeans():
     return Pipeline([
         ('separate', DataSeparator()),
         ('features', features),
-        ('kmeans', MiniBatchKMeans(n_clusters=k, init='k-means++', n_init=1,
-                                   init_size=1000, batch_size=1000))
+        ('k_means', MiniBatchKMeans(n_clusters=k, init='k-means++', n_init=1, init_size=1000, batch_size=1000))
     ])
 
 
@@ -110,58 +107,22 @@ def get_train_data():
     return semeval_train, semeval_dev, semeval_test
 
 
-t0 = time()
-num_samples = 10000
-reduction = 0.5
+def corpus_data(num_samples=10000):
+    count = 0
+    all_data = []
+    for line in codecs.open(root+'/Corpora/batches/tokenized.tsv', encoding='utf-8'):
+        count += 1
+        if count > num_samples:
+            break
+        all_data.append(line.strip())
+    logging.debug('len all data: %i' % len(all_data))
+    return all_data
 
-count = 0
-tweets = []
-all_data = []
-for line in codecs.open(root+'/Corpora/batches/tokenized.tsv', encoding='utf-8'):
-    if count > num_samples:
-        break
-    tweet, po = line.strip().split('\t')
-    tweets.append(tweet)
-    all_data.append(('%s\t%s' % (tweet, po)))
-    count += 1
-print('len all data: %i' % len(all_data))
 
-draw = False
-lsa = False
-dbscan = False
-kmeans = True
-print('num samples: %i, feature reduction: %.2f%%' % (num_samples, reduction*100))
-print('Draw is %s' % draw)
-print('LSA is %s' % lsa)
-print('DBSCAN is %s' % dbscan)
-print('KMeans is %s' % kmeans)
-
-clf = TfidfVectorizer(max_df=0.5, min_df=2, stop_words='english')
-X = clf.fit_transform(tweets)
-# TODO include sentiment lexicon features
-
-print("done in %fs" % (time() - t0))
-print("n_features before lsa: %d" % X.shape[1])
-
-# reduce feature space. cannot reduce very large corpora with very large feature spaces.
-if lsa:
-    svd = TruncatedSVD(int(X.shape[1]*reduction))
-    lsa_reduction = make_pipeline(svd, Normalizer(copy=False))
-
-    X = lsa_reduction.fit_transform(X)
-
-    print("done in %fs" % (time() - t0))
-    print("n_features after lsa: %d" % X.shape[1])
-
-    explained_variance = svd.explained_variance_ratio_.sum()
-    print("Explained variance of the SVD step: {}%".format(
-        int(explained_variance * 100)))
-
-# draws the distance matrix of the feature space
-if draw:
+def draw(feature_space):
     buckets = {}
-    distances = metrics.pairwise.pairwise_distances(X, metric='manhattan')
-    print('distances computed')
+    distances = metrics.pairwise.pairwise_distances(feature_space, metric='manhattan')
+    logging.debug('distances computed')
     for idx_a, row in enumerate(distances):
         for idx_b, val in enumerate(row):
             if idx_a != idx_b:
@@ -175,40 +136,37 @@ if draw:
     max_count = max(buckets.values())
     for key in sorted(buckets.keys()):
         num_bar = int(buckets[key] * max_length / max_count)
-        print('%s: %s' % (key, num_bar * '-'))
-    print("done in %fs" % (time() - t0))
-    exit()
+        logging.info('%s: %s' % (key, num_bar * '-'))
 
-# Compute DBSCAN clusters, does take too long for many instances
-if dbscan:
+
+def dbscan(feature_space):
     minimum_per_cluster = 1.0 / 4
-    samples_per_cluster = int(X.shape[0] / sqrt(X.shape[0]/2.0) * minimum_per_cluster)
-    print('Estimated minimum amount of samples per cluster: %i' % samples_per_cluster)
-    eps = (0.3, 0.6, 0.9, 1.10, 1.42, 1.74, 2.01, 2.24, 2.45, 2.75, 3.00, 3.25, 3.50, 3.75, 4.00, 4.25, 4.50, 3.75, 4.00,
-           4.25, 4.50, 4.75, 5.00, 5.25, 5.50, 5.75, 6.00, 6.25, 6.50, 6.75, 7.00, 7.25, 7.50, 7.75, 8.00)
+    samples_per_cluster = int(feature_space.shape[0] / sqrt(feature_space.shape[0]/2.0) * minimum_per_cluster)
+    logging.info('Estimated minimum amount of samples per cluster: %i' % samples_per_cluster)
+    eps = (0.3, 0.6, 0.9, 1.10, 1.42, 1.74, 2.01, 2.24, 2.45, 2.75, 3.00, 3.25, 3.50, 3.75, 4.00, 4.25, 4.50, 3.75,
+           4.00, 4.25, 4.50, 4.75, 5.00, 5.25, 5.50, 5.75, 6.00, 6.25, 6.50, 6.75, 7.00, 7.25, 7.50, 7.75, 8.00)
     for elem in eps:
-        db = DBSCAN(eps=elem, min_samples=minimum_per_cluster, metric='cosine', algorithm='brute').fit(X)
+        db = DBSCAN(eps=elem, min_samples=minimum_per_cluster, metric='cosine', algorithm='brute').fit(feature_space)
         core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
         core_samples_mask[db.core_sample_indices_] = True
         labels = db.labels_
         # Number of clusters in labels, ignoring noise if present.
         n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
 
-        print('Estimated number of clusters for esp=%.3f: %d' % (elem, n_clusters_))
+        logging.info('Estimated number of clusters for esp=%.3f: %d' % (elem, n_clusters_))
 
-        # TODO print representing words of each cluster
         for label in set(labels):
             labelled_samples = (labels == label) & core_samples_mask
             for idx in [i for i in labelled_samples if i is not False]:
                 pass
+                # TODO find central cluster samples?
 
 
-def label_counter(cluster_collection):
+def label_counter(cluster_collection, model):
     total_length = float(sum([len(data) for data in zip(*cluster_collection)[1]]))
-    print('total_length: %f' % total_length)
     consistency = 0
     for c, data in cluster_collection:
-        print('cluster: %s content length: %s' % (c, len(data)))
+        logging.debug('cluster: %s content length: %s' % (c, len(data)))
         y_pred = model.predict(data)
         label_counts = {}
         for p in y_pred:
@@ -220,44 +178,34 @@ def label_counter(cluster_collection):
     return consistency
 
 
-if kmeans:
-    model = init_model()
+def k_means():
+    k = 8
+    data = corpus_data()
+    baseline_clf = init_model()
     train, dev, test = get_train_data()
-    model.fit(train[0], train[1])
-    max_consistency = label_counter([(0, all_data)])
-    print('baseline consistency: %f' % max_consistency)
+    baseline_clf.fit(train[0], train[1])
+    max_consistency = label_counter([(0, data)], baseline_clf)
+    logging.info('baseline consistency: %f' % max_consistency)
 
     max_clusters = ()
-    km = all_features_kmeans()
+    km = k_means_pipeline(k)
     for run in range(50):
-        print('run number %i' % run)
-        k = 8
-        # km = MiniBatchKMeans(n_clusters=k, init='k-means++', n_init=1,
-        #                      init_size=1000, batch_size=1000)
-        km.fit(X)
+        logging.debug('run number %i' % run)
+        km.fit(data)
 
-        cluster = {idx: [] for idx in range(k)}
-        for entry, c in zip(all_data, km.named_steps['kmeans'].labels_):
-            cluster[c].append(entry)
-        local_consistency = label_counter(cluster.items())
+        clusters = {idx: [] for idx in range(k)}
+        for entry, cluster in zip(data, km.named_steps['k_means'].labels_):
+            clusters[cluster].append(entry)
+        local_consistency = label_counter(clusters.items(), baseline_clf)
 
         if local_consistency > max_consistency:
             max_consistency = local_consistency
-            max_clusters = km.named_steps['kmeans'].labels_
-            print('max consistency updated to %f' % max_consistency)
+            max_clusters = km.named_steps['k_means'].labels_
+            logging.debug('max consistency updated to %f' % max_consistency)
 
-    print('most consistent score: %f' % max_consistency)
+    logging.info('most consistent score: %f' % max_consistency)
     with open(root+'/logs/cluster.txt', 'w') as log:
         for line in max_clusters:
             log.write('%s\n' % line)
 
-        # print("Top terms per cluster:", end='')
-        # order_centroids = km.cluster_centers_.argsort()[:, ::-1]
-        # terms = clf.get_feature_names()
-        # for i in range(k):
-        #     print("\nCluster %d:" % i, end='')
-        #     for ind in order_centroids[i, :10]:
-        #         print(' %s' % terms[ind], end='')
-
-
-# TODO train supervised classifier, run k-means and always keep the model in tmp that had the best cluster fits
+k_means()
