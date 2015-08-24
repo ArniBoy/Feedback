@@ -6,8 +6,18 @@ import logging
 import os
 from codecs import open
 from subprocess import call
+from random import sample
 
-from external_sources import AFinnWordList
+from sklearn.svm import LinearSVC
+from sklearn.grid_search import GridSearchCV
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.pipeline import Pipeline, FeatureUnion
+
+from preprocessing import get_tweet, parse
+from feature_extractors import AllCapsFeatures, HashtagFeatures, \
+    PunctuationFeatures, ElongatedFeatures, EmoticonFeatures, SENTFeatures, \
+    NRCFeatures, ItemSelector, DataSeparator, PosFeatures, LengthFeatures
 
 root = '/Users/Ceca/Arne/Data/'
 html_dict = {u'&quot;': u'"', u'&amp;': u'&', u'&lt;': u'<', u'&gt;': u'>',
@@ -42,7 +52,7 @@ def f_range(x, y, jump):
         x += jump
 
 
-def get_semeval_data(text, meta):
+def get_raw_semeval_data(text, meta):
     """
     Extracting preprocessed semeval data, consisting of tweets and POS-tags as instances, and strings as labels
     :param text: location of tweet text
@@ -54,8 +64,175 @@ def get_semeval_data(text, meta):
                               open(meta, 'r', 'utf-8')):
         tweet, pos, _, _ = line_1.strip().split('\t')
         _, _, sent = line_2.strip().split('\t')
+        sent, tweet, pos = get_tweet(u'\t'.join((sent, tweet, pos)))
         tweets[u'\t'.join([tweet, pos])] = sent
     return tweets.keys(), tweets.values()
+
+
+def f1(y_true, y_pred, label):
+    """
+    Computes the isolated f1 and accuracy score for the specified label
+    :param y_true: True labels
+    :param y_pred: Predicted labels obtained from a model
+    :param label: Label in question. One of preprocessing.POS/NEG/NEU/OBJ/OON
+    :return: Harmonic mean between precision and recall, aka f1 score
+    """
+    tp = 0.0  # true positives
+    fp = 0.0  # false positives
+    fn = 0.0  # false negatives
+    tn = 0.0  # true negatives
+    for labels in zip(y_true, y_pred):
+        if labels[1] == label:
+            if labels[0] == label:
+                tp += 1
+            else:
+                fp += 1
+        else:
+            if labels[0] == label:
+                fn += 1
+            else:
+                tn += 1
+
+    if tp == 0 or fp == 0 or fn == 0:
+        logging.warn('Calculation faulty with tp=%i, fp=%i, fn=%i for label: %s' % (tp, fp, fn, label))
+        micro_f1 = 0
+    else:
+        precision = tp / (tp+fp)
+        recall = tp / (tp+fn)
+        micro_f1 = 2 * ((precision*recall) / (precision+recall))
+    micro_accuracy = (tp + tn) / (tp + tn + fp + fn)
+    return micro_f1, micro_accuracy
+
+
+def get_final_semeval_data(classes, train_loc, dev_loc, test_loc):
+    """
+    Loads the final version of the semeval data that was merged by the following criteria:
+    train: train13, dev13, train14, train15
+    dev: test13, dev14, dev15
+    test: test14, test15
+    It should be noted that some redundancy exists between each year's set
+    :param classes: bitflags following the definitions in preprocessing
+    :param train_loc: location of training data
+    :param dev_loc: location of development data
+    :param test_loc: location of test data
+    :return: tuple of lists, following the (X, y) scheme
+    """
+    train_labels, train_tweets, train_pos = parse(
+        train_loc, classes
+    )
+    dev_labels, dev_tweets, dev_pos = parse(
+        dev_loc, classes
+    )
+    test_labels, test_tweets, test_pos = parse(
+        test_loc, classes
+    )
+    train = [e[0]+'\t'+e[1] for e in zip(train_tweets, train_pos)], train_labels
+    dev = [e[0]+'\t'+e[1] for e in zip(dev_tweets, dev_pos)], dev_labels
+    test = [e[0]+'\t'+e[1] for e in zip(test_tweets, test_pos)], test_labels
+    return train, dev, test
+
+
+def get_feature_union():
+    """
+    Builds the feature union used in all classifiers in this project
+    :return: feature union of all implemented features
+    """
+    return FeatureUnion(
+        transformer_list=[
+            ('length', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('counter', LengthFeatures()),
+            ])),
+            ('word_ngram', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('tfidf', TfidfVectorizer()),
+            ])),
+            ('char_ngram', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('tfidf', TfidfVectorizer()),
+            ])),
+            ('all_caps_count', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('counter', AllCapsFeatures()),
+            ])),
+            ('hashtag_count', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('counter', HashtagFeatures()),
+            ])),
+            ('punctuation_count', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('counter', PunctuationFeatures()),
+            ])),
+            ('elongated_count', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('counter', ElongatedFeatures()),
+            ])),
+            ('emoticon_count', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('counter', EmoticonFeatures()),
+            ])),
+            ('pos', Pipeline([
+                ('selector', ItemSelector(key='pos')),
+                ('counter', PosFeatures()),
+            ])),
+            ('sent', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('lex', SENTFeatures(root+'/Sentiment140-Lexicon-v0.1')),
+            ])),
+            ('nrc', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('lex', NRCFeatures(root+'/NRC-Hashtag-Sentiment-Lexicon-v0.1')),
+            ]))
+        ],
+        transformer_weights={
+            'word_ngram': 1.0,
+            'char_ngram': 1.0,
+            'all_caps_count': 0.2,
+            'hashtag_count': 0.2,
+            'punctuation_count': 0.2,
+            'elongated_count': 0.2,
+            'emoticon_count': 0.2,
+            'pos': 0.2,
+            'sent': 0.05,
+            'nrc': 0.05,
+            'length': 0.2
+        }
+    )
+
+
+def svm_pipeline():
+    """
+    Builds an untrained support vector machine using all implemented features.
+    This is the main classifier, which is why the parameters are estimated by
+    a -- now constant -- cross validated grid search.
+    """
+    pipeline = Pipeline([
+        ('separate', DataSeparator()),
+        ('features', get_feature_union()),
+        ('svm', LinearSVC())
+    ])
+    parameters = {
+        'features__word_ngram__tfidf__analyzer': ('word',),
+        'features__word_ngram__tfidf__max_df': (0.75,),
+        'features__word_ngram__tfidf__ngram_range': ((1, 5),),
+        'features__char_ngram__tfidf__analyzer': ('char',),
+        'features__char_ngram__tfidf__max_df': (0.75,),
+        'features__char_ngram__tfidf__ngram_range': ((1, 5),),
+        'svm__C': (0.5,)
+    }
+    return GridSearchCV(pipeline, parameters, n_jobs=-1, verbose=1)
+
+
+def k_means_pipeline(k):
+    """
+    Builds an untrained k-means model using all implemented features
+    :param k: amount of clusters
+    """
+    return Pipeline([
+        ('separate', DataSeparator()),
+        ('features', get_feature_union()),
+        ('k_means', MiniBatchKMeans(n_clusters=k, init='k-means++', n_init=1, init_size=1000, batch_size=1000))
+    ])
 
 
 def get_columns(doc, columns, delim, only_if=-1):
@@ -74,6 +251,18 @@ def get_columns(doc, columns, delim, only_if=-1):
                 for column in columns:
                     sub_row += '%s\t' % data[column]
                 sink.write(sub_row[:-1] + '\n')
+
+
+def get_corpus(num_samples):
+    """
+    Load a subset of the sent 140 corpus. This function draws a random portion,
+    as the original data seems to have a bias on position
+    :param num_samples: a random sample of this size will be extracted
+    :return: The subset, as list of <tweet> tab <pos-tags> entries
+    """
+    all_data = [tweet.strip() for tweet in open(root+'/Corpora/batches/tokenized.tsv', encoding='utf-8')]
+    all_data = sample(all_data, num_samples)
+    return [u'\t'.join(get_tweet(tweet)[1:]) for tweet in all_data]
 
 
 def batch_file(doc, batch_size=10000):
@@ -160,75 +349,3 @@ def bucket_dist(raw_dict, num_buckets):
                 dictionary[bucket] += raw_dict[key]
                 break
     return dictionary
-
-
-def analyse_mutator(corpus_loc, latex=True):
-    """
-    Runs a raw weighting scheme for the AFinn source and prints statistical data
-    :param corpus_loc: location of the corpus that gets weighted
-    :param latex: if true, the output is printed latex pgf plot conform
-    """
-    mutator = AFinnWordList(root+'/afinn/AFINN-111.txt')
-    mutator.add_weight(1, (1, 2))
-    frq_pos = {}
-    frq_neg = {}
-    corpus_length = 0
-    for line in open(root+corpus_loc, 'r', 'utf-8'):
-        corpus_length += 1
-        distances = mutator.apply_weighting(line.split('\t')[0], [0, 0])
-        if distances[0] not in frq_pos:
-            frq_pos[distances[0]] = 1
-        else:
-            frq_pos[distances[0]] += 1
-
-        if distances[1] not in frq_neg:
-            frq_neg[distances[1]] = 1
-        else:
-            frq_neg[distances[1]] += 1
-    frq_pos.pop(0)
-    frq_neg.pop(0)
-
-    logging.info('\npositive distribution:')
-    pos_dist = bucket_dist(frq_pos, 25)
-    if latex:
-        count = 0
-        tmp = '{'
-        for value in sorted(pos_dist.keys()):
-            count += 1
-            if count % 5 == 0:
-                tmp += '\n'
-            tmp += '(%.4f,%i) ' % (value, pos_dist[value])
-        logging.info(tmp[:-1]+'}')
-    else:
-        for value in sorted(pos_dist.keys()):
-            logging.info('%s: %s' % (value, pos_dist[value]))
-
-    logging.info('\nnegative distribution:')
-    neg_dist = bucket_dist(frq_neg, 25)
-    if latex:
-        count = 0
-        tmp = '{'
-        for value in sorted(neg_dist.keys()):
-            count += 1
-            if count % 5 == 0:
-                tmp += '\n'
-            tmp += '(%.4f,%i) ' % (value, neg_dist[value])
-        logging.info(tmp[:-1]+'}')
-    else:
-        for value in sorted(neg_dist.keys()):
-            logging.info('%s: %s' % (value, neg_dist[value]))
-
-    logging.info('pos min key: %f, pos max key: %f' % (min(frq_pos.keys()), max(frq_pos.keys())))
-    logging.info('pos min val: %i, pos max val: %i' % (min(frq_pos.values()), max(frq_pos.values())))
-    pos_concat = [e for bucket in [([key]*val) for key, val in frq_pos.items()] for e in bucket]
-    logging.info('pos median: %f' % (pos_concat[len(pos_concat)/2]))
-    logging.info('pos avg: %f\n' % (sum(pos_concat)/len(pos_concat)))
-
-    logging.info('neg min key: %f, neg max key: %f' % (min(frq_neg.keys()), max(frq_neg.keys())))
-    logging.info('neg min val: %i, neg max val: %i' % (min(frq_neg.values()), max(frq_neg.values())))
-    neg_concat = [e for bucket in [([key]*val) for key, val in frq_neg.items()] for e in bucket]
-    logging.info('neg median: %f' % (neg_concat[len(neg_concat)/2]))
-    logging.info('neg avg: %f\n' % (sum(neg_concat)/len(neg_concat)))
-
-    logging.info('total average sentiment weight in corpus per tweet: %f'
-                 % ((sum(pos_concat) + sum(neg_concat)) / corpus_length))

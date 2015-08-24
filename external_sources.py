@@ -6,9 +6,8 @@ import logging
 from codecs import open
 from os import listdir, path
 
-from sklearn.cluster import KMeans
-
 from preprocessing import POS, NEG, NEU
+from util import k_means_pipeline, bucket_dist
 
 root = '/Users/Ceca/Arne/Data'
 
@@ -123,13 +122,23 @@ class AutoCluster(SentMutate):
         :param sentiments_loc: location of the clusters-label association data
         """
         super(AutoCluster, self).__init__()
-        self.clusters = KMeans()
+        self.clusters = k_means_pipeline(8)
         tmp = [
-            (tweet.strip(), label.strip()) for tweet, label in zip(
+            (tweet.strip(), int(label.strip())) for tweet, label in zip(
                 open(root+'/Corpora/batches/tokenized.tsv', 'r,', 'utf-8'),
                 open(clusters_loc, 'r,', 'utf-8'))
         ]
-        self.clusters.fit(zip(*tmp))
+        clf = {}
+        for tweet, label in tmp:
+            if label not in clf:
+                clf[label] = [tweet]
+            else:
+                clf[label].append(tweet)
+        for label in clf.keys():
+            for tweet in clf[label]:
+                print('%s: %s' % (label, tweet))
+        exit()
+        self.clusters.fit(*map(list, zip(*tmp)))
         self.cluster_sentiment = {idx: label.strip() for idx, label in open(sentiments_loc, 'r,', 'utf-8')}
 
     def get_score(self, tweet):
@@ -197,17 +206,77 @@ class SerelexCluster(SentMutate):
             distances[self.neg_idx] -= self.weight * score
 
 
+def analyse_mutator(mutator, latex=True):
+    """
+    Runs a raw weighting scheme for the specified mutator and prints
+    interesting data
+    :param mutator: SentMutator instance which is about to be analysed
+    :param latex: if true, the output is printed latex pgf plot conform
+    """
+    mutator.add_weight(1, (1, 2))
+    frq_pos = {}
+    frq_neg = {}
+    corpus_length = 0
+    for line in open(root+'/Corpora/batches/tokenized.tsv', 'r', 'utf-8'):
+        corpus_length += 1
+        distances = mutator.apply_weighting(line.split('\t')[0], [0, 0])
+        if distances[0] not in frq_pos:
+            frq_pos[distances[0]] = 1
+        else:
+            frq_pos[distances[0]] += 1
+
+        if distances[1] not in frq_neg:
+            frq_neg[distances[1]] = 1
+        else:
+            frq_neg[distances[1]] += 1
+    frq_pos.pop(0)
+    frq_neg.pop(0)
+
+    logging.info('\npositive distribution:')
+    pos_dist = bucket_dist(frq_pos, 25)
+    if latex:
+        count = 0
+        tmp = '{'
+        for value in sorted(pos_dist.keys()):
+            count += 1
+            if count % 5 == 0:
+                tmp += '\n'
+            tmp += '(%.4f,%i) ' % (value, pos_dist[value])
+        logging.info(tmp[:-1]+'}')
+    else:
+        for value in sorted(pos_dist.keys()):
+            logging.info('%s: %s' % (value, pos_dist[value]))
+
+    logging.info('\nnegative distribution:')
+    neg_dist = bucket_dist(frq_neg, 25)
+    if latex:
+        count = 0
+        tmp = '{'
+        for value in sorted(neg_dist.keys()):
+            count += 1
+            if count % 5 == 0:
+                tmp += '\n'
+            tmp += '(%.4f,%i) ' % (value, neg_dist[value])
+        logging.info(tmp[:-1]+'}')
+    else:
+        for value in sorted(neg_dist.keys()):
+            logging.info('%s: %s' % (value, neg_dist[value]))
+
+    logging.info('pos min key: %f, pos max key: %f' % (min(frq_pos.keys()), max(frq_pos.keys())))
+    logging.info('pos min val: %i, pos max val: %i' % (min(frq_pos.values()), max(frq_pos.values())))
+    pos_concat = [e for bucket in [([key]*val) for key, val in frq_pos.items()] for e in bucket]
+    logging.info('pos median: %f' % (pos_concat[len(pos_concat)/2]))
+    logging.info('pos avg: %f\n' % (sum(pos_concat)/len(pos_concat)))
+
+    logging.info('neg min key: %f, neg max key: %f' % (min(frq_neg.keys()), max(frq_neg.keys())))
+    logging.info('neg min val: %i, neg max val: %i' % (min(frq_neg.values()), max(frq_neg.values())))
+    neg_concat = [e for bucket in [([key]*val) for key, val in frq_neg.items()] for e in bucket]
+    logging.info('neg median: %f' % (neg_concat[len(neg_concat)/2]))
+    logging.info('neg avg: %f\n' % (sum(neg_concat)/len(neg_concat)))
+
+    logging.info('total average sentiment weight in corpus per tweet: %f'
+                 % ((sum(pos_concat) + sum(neg_concat)) / corpus_length))
 
 
-
-
-
-
-
-
-
-
-
-
-
-
+if __name__ == '__main__':
+    clf = AutoCluster('/Users/Ceca/Arne/Data/logs/cluster.txt', '/Users/Ceca/Arne/Data/cluster_annotation/auto.txt')

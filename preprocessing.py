@@ -4,7 +4,6 @@ __author__ = 'Arne Recknagel'
 
 import logging
 from codecs import open
-import random
 import re
 
 # possible sentiment labels used as flags
@@ -116,7 +115,7 @@ def get_tweet(tweet):
 
 def read_tweet_file(f_loc, flags):
     """
-    Read a file of tab-separated tweets, at this stage with label data.
+    Read a file of tab-separated tweets, at this stage with labeled data.
     :param f_loc: twitterData/twitter-train-full-B.tsv
                   -or-
                   twitterData/tweeter-dev-full-B.tsv
@@ -136,7 +135,7 @@ def read_tweet_file(f_loc, flags):
                       % (f_loc, count, bin(flags)))
 
 
-def parse(f_loc, flags=0, seed=random.random()):
+def parse(f_loc, flags=0):
     """
     Wrapper for a flattened output of read_tweet_file, also defaults to shuffled
     content for better testing.
@@ -144,13 +143,9 @@ def parse(f_loc, flags=0, seed=random.random()):
                   -or-
                   twitterData/tweeter-dev-full-B.tsv
     :param flags: Bitwise flags
-    :param seed: Seed for shuffle func
     :return: labels, content, pos-tags
              -as-
              list(unicode), list(unicode), list(unicode)
     """
     labels, tweets, pos = map(list, zip(*list(read_tweet_file(f_loc, flags))))
-    # random.shuffle(labels, lambda: seed)
-    # random.shuffle(tweets, lambda: seed)
-    # random.shuffle(pos, lambda: seed)
     return labels, tweets, pos

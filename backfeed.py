@@ -3,39 +3,26 @@
 __author__ = 'Arne Recknagel'
 
 import logging
-from codecs import open
 from random import shuffle
 import numpy as np
 
-from preprocessing import get_tweet
 from external_sources import SentMutate
-from toy_classifier import root
+from util import get_corpus
 
 
 class Feeder:
     """
-    Class which encapsulates the feedback module. Currently, only a 50.000 sized
-    subset is loaded.
+    Class which encapsulates the feedback module.
     """
-    def __init__(self, corpus_loc, limit=20000):
+    def __init__(self, limit=20000):
         """
         Constructor for a Feeder instance
-        :param corpus_loc: Location of the sent140 corpus
         :param limit: Cutoff for testing, lower value improves speed
         """
         self.current_idx = 0
-        self.corpus = {}
-        count = 0
-        try:
-            for count, e in enumerate(open(corpus_loc, 'r', 'utf-8')):
-                count += 1
-                if count > limit:  # restrict input to a few tweets, not all yet
-                    break
-                self.corpus[count] = '\t'.join(get_tweet(e)[1:])
-        except UnicodeDecodeError:
-            logging.warning('UnicodeDecodeError in %s at line %i' %
-                            (corpus_loc, count))
+        self.corpus = {idx: tweet for idx, tweet in enumerate(get_corpus(limit))}
         self.mutators = []
+        logging.debug('Feeder instance successfully initiated with corpus size %i' % limit)
 
     def add_mutator(self, mut):
         """
@@ -122,7 +109,7 @@ class Feeder:
         )
 
         if append:
-            # add 'data' to x and y, removal from corpus probably irrelevant
+            # add 'data' to x and y, removal from corpus probably irrelevant but makes sense
             x += data
             y += labels
             for idx, _ in to_add:

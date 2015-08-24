@@ -3,88 +3,17 @@
 __author__ = 'Arne Recknagel'
 
 import logging
-import codecs
 from math import sqrt
 import numpy as np
 
 from sklearn.cluster import DBSCAN
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.cluster import MiniBatchKMeans
 from sklearn import metrics
-from sklearn.pipeline import Pipeline, FeatureUnion
 
-from feature_extractors import AllCapsFeatures, HashtagFeatures, \
-    PunctuationFeatures, ElongatedFeatures, EmoticonFeatures, SENTFeatures, \
-    NRCFeatures, ItemSelector, DataSeparator, PosFeatures
-
-from toy_classifier import init_model
+from util import svm_pipeline, k_means_pipeline, get_corpus
 from preprocessing import parse, POS, NEG, NEU
 
+
 root = '/Users/Ceca/Arne/Data'
-
-
-def k_means_pipeline(k):
-    features = FeatureUnion(
-        transformer_list=[
-            ('word_ngram', Pipeline([
-                ('selector', ItemSelector(key='tweets')),
-                ('tfidf', TfidfVectorizer()),
-            ])),
-            ('char_ngram', Pipeline([
-                ('selector', ItemSelector(key='tweets')),
-                ('tfidf', TfidfVectorizer()),
-            ])),
-            ('all_caps_count', Pipeline([
-                ('selector', ItemSelector(key='tweets')),
-                ('counter', AllCapsFeatures()),
-            ])),
-            ('hashtag_count', Pipeline([
-                ('selector', ItemSelector(key='tweets')),
-                ('counter', HashtagFeatures()),
-            ])),
-            ('punctuation_count', Pipeline([
-                ('selector', ItemSelector(key='tweets')),
-                ('counter', PunctuationFeatures()),
-            ])),
-            ('elongated_count', Pipeline([
-                ('selector', ItemSelector(key='tweets')),
-                ('counter', ElongatedFeatures()),
-            ])),
-            ('emoticon_count', Pipeline([
-                ('selector', ItemSelector(key='tweets')),
-                ('counter', EmoticonFeatures()),
-            ])),
-            ('pos', Pipeline([
-                ('selector', ItemSelector(key='pos')),
-                ('counter', PosFeatures()),
-            ])),
-            ('sent', Pipeline([
-                ('selector', ItemSelector(key='tweets')),
-                ('lex', SENTFeatures(root+'/Sentiment140-Lexicon-v0.1')),
-            ])),
-            ('nrc', Pipeline([
-                ('selector', ItemSelector(key='tweets')),
-                ('lex', NRCFeatures(root+'/NRC-Hashtag-Sentiment-Lexicon-v0.1')),
-            ])),
-        ],
-        transformer_weights={
-            'word_ngram': 1.0,
-            'char_ngram': 1.0,
-            'all_caps_count': 0.2,
-            'hashtag_count': 0.2,
-            'punctuation_count': 0.2,
-            'elongated_count': 0.2,
-            'emoticon_count': 0.2,
-            'pos': 0.2,
-            'sent': 0.05,
-            'nrc': 0.05
-        }
-    )
-    return Pipeline([
-        ('separate', DataSeparator()),
-        ('features', features),
-        ('k_means', MiniBatchKMeans(n_clusters=k, init='k-means++', n_init=1, init_size=1000, batch_size=1000))
-    ])
 
 
 def get_train_data():
@@ -107,18 +36,6 @@ def get_train_data():
     return semeval_train, semeval_dev, semeval_test
 
 
-def corpus_data(num_samples=10000):
-    count = 0
-    all_data = []
-    for line in codecs.open(root+'/Corpora/batches/tokenized.tsv', encoding='utf-8'):
-        count += 1
-        if count > num_samples:
-            break
-        all_data.append(line.strip())
-    logging.debug('len all data: %i' % len(all_data))
-    return all_data
-
-
 def draw(feature_space):
     buckets = {}
     distances = metrics.pairwise.pairwise_distances(feature_space, metric='manhattan')
@@ -131,7 +48,6 @@ def draw(feature_space):
                     buckets[rounded] = 1
                 else:
                     buckets[rounded] += 1
-
     max_length = 160.0
     max_count = max(buckets.values())
     for key in sorted(buckets.keys()):
@@ -180,8 +96,8 @@ def label_counter(cluster_collection, model):
 
 def k_means():
     k = 8
-    data = corpus_data()
-    baseline_clf = init_model()
+    data = get_corpus(20000)
+    baseline_clf = svm_pipeline()
     train, dev, test = get_train_data()
     baseline_clf.fit(train[0], train[1])
     max_consistency = label_counter([(0, data)], baseline_clf)
@@ -208,4 +124,6 @@ def k_means():
         for line in max_clusters:
             log.write('%s\n' % line)
 
-k_means()
+
+if __name__ == '__main__':
+    k_means()

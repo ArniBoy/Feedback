@@ -281,7 +281,7 @@ class LengthFeatures(BaseEstimator, TransformerMixin):
                 word_length = len(word)
                 features[count, 1] += word_length
                 features[count, 2] = word_length if word_length > features[count, 2] else features[count, 2]
-            features[count, 1] /= float(len(features[count, 0]))
+            features[count, 1] /= float(features[count, 0])
         return features
 
 
