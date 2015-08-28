@@ -9,8 +9,9 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 from sklearn import metrics
 
-from util import svm_pipeline, k_means_pipeline, get_corpus
 from preprocessing import parse, POS, NEG, NEU
+from util import svm_pipeline, k_means_pipeline, get_corpus, init_logging
+init_logging()
 
 
 root = '/Users/Ceca/Arne/Data'
@@ -100,6 +101,35 @@ def k_means():
     baseline_clf = svm_pipeline()
     train, dev, test = get_train_data()
     baseline_clf.fit(train[0], train[1])
+
+
+    import codecs
+    tmp = [
+        (tweet.strip(), int(label.strip())) for tweet, label in zip(
+            codecs.open(root+'/Corpora/batches/tokenized.tsv', 'r,', 'utf-8'),
+            codecs.open('/Users/Ceca/Arne/Data/logs/cluster.txt', 'r,', 'utf-8'))
+    ]
+    clf = {}
+    for tweet, label in tmp:
+        if label not in clf:
+            clf[label] = [tweet]
+        else:
+            clf[label].append(tweet)
+    for label in clf.keys():
+        print(label)
+        frq = {}
+        for tw in clf[label]:
+            try:
+                est = baseline_clf.predict([tw])[0]
+                if est in frq:
+                    frq[est] += 1
+                else:
+                    frq[est] = 1
+            except ValueError:
+                print('could not parse tweet %s' % tw)
+        print(frq)
+
+
     max_consistency = label_counter([(0, data)], baseline_clf)
     logging.info('baseline consistency: %f' % max_consistency)
 

@@ -7,7 +7,8 @@ from random import shuffle
 import numpy as np
 
 from external_sources import SentMutate
-from util import get_corpus
+from util import get_corpus, init_logging
+init_logging()
 
 
 class Feeder:
@@ -82,7 +83,7 @@ class Feeder:
             for mut in self.mutators:
                 for idx in range(len(distances)):
                     key, dist = distances[idx]
-                    tweet = self.corpus[key].split('\t')[0]
+                    tweet = self.corpus[key]
                     mut.apply_weighting(tweet, dist)
 
         # label entries

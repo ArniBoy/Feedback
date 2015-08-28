@@ -5,9 +5,11 @@ __author__ = 'Arne Recknagel'
 import logging
 from codecs import open
 from os import listdir, path
+from subprocess import call
 
 from preprocessing import POS, NEG, NEU
-from util import k_means_pipeline, bucket_dist
+from util import k_means_pipeline, bucket_dist, get_wordnet_pairs, init_logging
+init_logging()
 
 root = '/Users/Ceca/Arne/Data'
 
@@ -96,16 +98,18 @@ class AFinnWordList(SentMutate):
         return score
 
     def apply_filter(self, tweet, label):
+        tweet_text = tweet.split('\t')[0]
         if not self.ranges:
             raise RuntimeError("Tried to run filter without specified ranges!")
-        score = self.get_score(tweet)
+        score = self.get_score(tweet_text)
         return self.ranges[str(label)][0] < score < self.ranges[str(label)][1]
 
     def apply_weighting(self, tweet, distances):
+        tweet_text = tweet.split('\t')[0]
         if self.weight < 0 or self.pos_idx < 0 or self.neg_idx < 0:
             raise RuntimeError("Tried to run weighting without specified data!")
-        score = self.get_score(tweet)
-        word_count = len(tweet.split(' '))
+        score = self.get_score(tweet_text)
+        word_count = len(tweet_text.split(' '))
         if score > 0:
             distances[self.pos_idx] += self.weight * score / word_count
         elif score < 0:
@@ -122,12 +126,18 @@ class AutoCluster(SentMutate):
         :param sentiments_loc: location of the clusters-label association data
         """
         super(AutoCluster, self).__init__()
+
+        # init classifier
         self.clusters = k_means_pipeline(8)
+
+        # load tweets
         tmp = [
             (tweet.strip(), int(label.strip())) for tweet, label in zip(
                 open(root+'/Corpora/batches/tokenized.tsv', 'r,', 'utf-8'),
                 open(clusters_loc, 'r,', 'utf-8'))
         ]
+
+        # print tweet class info
         clf = {}
         for tweet, label in tmp:
             if label not in clf:
@@ -138,8 +148,13 @@ class AutoCluster(SentMutate):
             for tweet in clf[label]:
                 print('%s: %s' % (label, tweet))
         exit()
-        self.clusters.fit(*map(list, zip(*tmp)))
+
+
+        # load cluster class sentiment info
         self.cluster_sentiment = {idx: label.strip() for idx, label in open(sentiments_loc, 'r,', 'utf-8')}
+
+        # train classifier
+        self.clusters.fit(*map(list, zip(*tmp)))
 
     def get_score(self, tweet):
         cluster_sent = self.cluster_sentiment[self.clusters.predict(tweet)]
@@ -153,12 +168,14 @@ class AutoCluster(SentMutate):
             logging.warn('Input %s not format conform!' % cluster_sent)
 
     def apply_filter(self, tweet, label):
-        return self.get_score(tweet) == label
+        tweet_text = tweet.split('\t')[0]
+        return self.get_score(tweet_text) == label
 
     def apply_weighting(self, tweet, distances):
+        tweet_text = tweet.split('\t')[0]
         if self.weight < 0 or self.pos_idx < 0 or self.neg_idx < 0:
             raise RuntimeError("Tried to run weighting without specified data!")
-        verdict = self.get_score(tweet)
+        verdict = self.get_score(tweet_text)
         if verdict == POS:
             distances[self.pos_idx] += self.weight
         elif verdict == NEG:
@@ -166,44 +183,99 @@ class AutoCluster(SentMutate):
 
 
 class SerelexCluster(SentMutate):
-    def __init__(self, clusters_loc, sentiments_loc, scheme='resnik'):
+    def __init__(self, clusters_loc, sentiments_loc, wordnet_loc, similarity_script, scheme):
         """
-        Loads clusters obtained by using the serelex word net tool (http://serelex.cental.be).
+        Loads clusters obtained by using the serelex word net tool (http://serelex.cental.be). Uses WordNet for
+        weighting, more specifically the WordNet::Similarity tool (http://wn-similarity.sourceforge.net)
         :param clusters_loc: folder containing serelex cluster files (.scf)
         :param sentiments_loc: file containing the sentiments associated with a cluster name
         """
         super(SerelexCluster, self).__init__()
-        if scheme not in ():
-            logging.warn('Scheme %s is not part of the allowed measures!' % scheme)
+        # init scheme
+        schemes = ('path', 'hso', 'lch', 'lesk', 'lin', 'jcn', 'random', 'res', 'vector_pairs', 'wup')
+        self.sents = {'pos': 'positive', 'neg': 'negative', 'neut': 'neutral'}
+        if scheme not in schemes:
+            logging.warn('Scheme %s is not part of the allowed measures! Try any of \n\t%s' %
+                         (scheme, '\n\t'.join(schemes)))
+
+        # init wordnet list
+        self.wordnet_words = set()
+        for word in open(wordnet_loc):
+            self.wordnet_words.add(word.strip())
+
+        # init serelex cluster
         self.clusters = {}
-        for name in listdir(clusters_loc):
-            cluster_name = path.splitext(name)
+        for name in [c for c in listdir(clusters_loc) if not c.startswith('.')]:
+            cluster_name = path.splitext(name)[0]
             self.clusters[cluster_name] = []
             for line in open(path.join(clusters_loc, name)):
-                self.clusters[cluster_name].append(line.split())
-        self.sentiments = {}
-        for line in open(sentiments_loc):
-            self.sentiments[line.split('\t')[0]] = line.strip().split('\t')[1]
-        for name in set(self.clusters.keys()) - set(self.sentiments.keys()):
-            logging.warn('No sentiment weight for cluster %s found!' % name)
+                self.clusters[cluster_name].append(line.strip())
 
-    def get_score(self, tweet):
-        return 0 or self or tweet
+        # init cluster sentiment mappings
+        self.sentiments = {line.split(' ')[0]: line.strip().split(' ')[1] for line in open(sentiments_loc)}
+        for name in (set(self.clusters.keys()) - set(self.sentiments.keys())):
+            logging.warn('No sentiment weight for cluster "%s" found!' % name)
+        for sent in set(self.sentiments.values()):
+            if sent not in self.sents.values():
+                logging.warn('Sentiment weight %s not available, please only use %s.' % (sent, self.sents.values()))
+
+        # init tempfiles
+        self.tmp_in_name = 'tmp.in'
+        self.tmp_out_name = 'tmp.out'
+        self.error_log = 'errors.log'
+
+        # memorize wordnet similarity call script
+        self.sim_call = 'perl %s --type=WordNet::Similarity::%s --file=%s > %s 2>%s' %\
+                        (similarity_script, scheme, self.tmp_in_name, self.tmp_out_name, self.error_log)
+
+    def get_scores(self, tweet_text, tweet_pos):
+        clusters = {}
+        for name, cluster in self.clusters.items():
+            try:
+                cluster_score = 0
+                with open(self.tmp_in_name, 'w') as tmp_in:
+                    tmp_in.write('\n'.join(get_wordnet_pairs(self.wordnet_words, tweet_text, tweet_pos, cluster)))
+                call(self.sim_call, shell=True)
+                for line in open(self.tmp_out_name):
+                    fields = [f for f in line.strip().split(' ') if f]
+                    if len(fields) == 3:
+                        cluster_score += float(fields[2])
+                clusters[name] = cluster_score / len(tweet_text.strip(' '))
+            except ValueError as e:
+                logging.error('%s: in tweet %s' % (type(e), tweet_text))
+        return sorted(clusters.items(), key=lambda x: x[1], reverse=True)
+
+    def get_highest_diff(self, scores):
+        diff_score = scores[0][1]
+        winning_sent = self.sentiments[scores[0][1]]
+        for cluster_name, score in scores:
+            if self.sentiments[cluster_name] != winning_sent:
+                diff_score -= score
+        if winning_sent == self.sents['pos']:
+            return diff_score
+        elif winning_sent == self.sents['neg']:
+            return -1 * diff_score
+        else:
+            return 0
 
     def apply_filter(self, tweet, label):
         if not self.ranges:
             raise RuntimeError("Tried to run filter without specified ranges!")
-        score = self.get_score(tweet)
+        tweet_text, tweet_pos = tweet.strip().split('\t')
+        score = self.get_highest_diff(self.get_scores(tweet_text, tweet_pos))
         return self.ranges[str(label)][0] < score < self.ranges[str(label)][1]
 
     def apply_weighting(self, tweet, distances):
         if self.weight < 0 or self.pos_idx < 0 or self.neg_idx < 0:
             raise RuntimeError("Tried to run weighting without specified data!")
-        score = self.get_score(tweet)
+        tweet_text, tweet_pos = tweet.strip().split('\t')
+        score = self.get_highest_diff(self.get_scores(tweet_text, tweet_pos))
         if score > 0:
             distances[self.pos_idx] += self.weight * score
         elif score < 0:
-            distances[self.neg_idx] -= self.weight * score
+            distances[self.neg_idx] += self.weight * score
+        else:
+            pass  # neutral classification
 
 
 def analyse_mutator(mutator, latex=True):
@@ -219,7 +291,7 @@ def analyse_mutator(mutator, latex=True):
     corpus_length = 0
     for line in open(root+'/Corpora/batches/tokenized.tsv', 'r', 'utf-8'):
         corpus_length += 1
-        distances = mutator.apply_weighting(line.split('\t')[0], [0, 0])
+        distances = mutator.apply_weighting(line, [0, 0])
         if distances[0] not in frq_pos:
             frq_pos[distances[0]] = 1
         else:
@@ -280,3 +352,12 @@ def analyse_mutator(mutator, latex=True):
 
 if __name__ == '__main__':
     clf = AutoCluster('/Users/Ceca/Arne/Data/logs/cluster.txt', '/Users/Ceca/Arne/Data/cluster_annotation/auto.txt')
+    cl = SerelexCluster(
+        '/Users/Ceca/Arne/Data/clusters/serelex', '/Users/Ceca/Arne/Data/clusters/serelex_annotation.txt',
+        '/Users/Ceca/Arne/Data/wordnet/wl.txt', '/Users/Ceca/Arne/Libs/WordNet-Similarity-2.05/utils/similarity.pl',
+        'res')
+    for count, l in enumerate(open('/Users/Ceca/Arne/Data/Corpora/batches/tokenized.tsv')):
+        if count > 192:
+            print(l.split('\t')[0])
+            print(cl.get_scores(*(l.strip().split('\t'))))
+            print('')
