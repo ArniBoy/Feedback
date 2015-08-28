@@ -4,24 +4,23 @@ __author__ = 'Arne Recknagel'
 
 import logging
 from math import sqrt
+import codecs
+
 import numpy as np
 
 from sklearn.cluster import DBSCAN
 from sklearn import metrics
 
 from preprocessing import parse, POS, NEG, NEU
-from util import svm_pipeline, k_means_pipeline, get_corpus, init_logging
+from util import svm_pipeline, k_means_pipeline, get_corpus, init_logging, root
 init_logging()
-
-
-root = '/Users/Ceca/Arne/Data'
 
 
 def get_train_data():
     classes = POS | NEU | NEG
-    train_loc = root+'/twitterData/train_alternative.tsv'
-    dev_loc = root+'/twitterData/dev_alternative.tsv'
-    test_loc = root+'/twitterData/test_alternative.tsv'
+    train_loc = root+'Data/twitterData/train_alternative.tsv'
+    dev_loc = root+'Data/twitterData/dev_alternative.tsv'
+    test_loc = root+'Data/twitterData/test_alternative.tsv'
     train_labels, train_tweets, train_pos = parse(
         train_loc, classes
     )
@@ -94,7 +93,7 @@ def label_counter(cluster_collection, model):
         consistency += max(label_counts.values()) / total_length
     return consistency
 
-# do things
+
 def k_means():
     k = 8
     data = get_corpus(20000)
@@ -102,12 +101,10 @@ def k_means():
     train, dev, test = get_train_data()
     baseline_clf.fit(train[0], train[1])
 
-
-    import codecs
     tmp = [
         (tweet.strip(), int(label.strip())) for tweet, label in zip(
-            codecs.open(root+'/Corpora/batches/tokenized.tsv', 'r,', 'utf-8'),
-            codecs.open('/Users/Ceca/Arne/Data/logs/cluster.txt', 'r,', 'utf-8'))
+            codecs.open(root+'Data/Corpora/batches/tokenized.tsv', 'r,', 'utf-8'),
+            codecs.open(root+'Data/logs/cluster.txt', 'r,', 'utf-8'))
     ]
     clf = {}
     for tweet, label in tmp:
@@ -129,7 +126,6 @@ def k_means():
                 print('could not parse tweet %s' % tw)
         print(frq)
 
-
     max_consistency = label_counter([(0, data)], baseline_clf)
     logging.info('baseline consistency: %f' % max_consistency)
 
@@ -150,7 +146,7 @@ def k_means():
             logging.debug('max consistency updated to %f' % max_consistency)
 
     logging.info('most consistent score: %f' % max_consistency)
-    with open(root+'/logs/cluster.txt', 'w') as log:
+    with open(root+'Data/logs/cluster.txt', 'w') as log:
         for line in max_clusters:
             log.write('%s\n' % line)
 

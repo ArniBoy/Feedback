@@ -24,7 +24,7 @@ from feature_extractors import AllCapsFeatures, HashtagFeatures, \
     NRCFeatures, ItemSelector, DataSeparator, PosFeatures, LengthFeatures
 
 lmt = WordNetLemmatizer()
-root = '/Users/Ceca/Arne/Data/'
+root = '/home/arne/MasterArbeit/'
 html_dict = {u'&quot;': u'"', u'&amp;': u'&', u'&lt;': u'<', u'&gt;': u'>',
              u'&OElig;': u'Œ', u'&oelig;': u'œ', u'&Scaron;': u'Š',
              u'&scaron;': u'š', u'&Yuml;': u'Ÿ', u'&circ;': u'ˆ',
@@ -190,11 +190,11 @@ def get_feature_union():
             ])),
             ('sent', Pipeline([
                 ('selector', ItemSelector(key='tweets')),
-                ('lex', SENTFeatures(root+'/Sentiment140-Lexicon-v0.1')),
+                ('lex', SENTFeatures(root+'Data/Sentiment140-Lexicon-v0.1')),
             ])),
             ('nrc', Pipeline([
                 ('selector', ItemSelector(key='tweets')),
-                ('lex', NRCFeatures(root+'/NRC-Hashtag-Sentiment-Lexicon-v0.1')),
+                ('lex', NRCFeatures(root+'Data/NRC-Hashtag-Sentiment-Lexicon-v0.1')),
             ]))
         ],
         transformer_weights={
@@ -273,7 +273,7 @@ def get_corpus(num_samples):
     :param num_samples: a random sample of this size will be extracted
     :return: The subset, as list of <tweet> tab <pos-tags> entries
     """
-    all_data = [tweet.strip() for tweet in open(root+'/Corpora/batches/tokenized.tsv', encoding='utf-8')]
+    all_data = [tweet.strip() for tweet in open(root+'Data/Corpora/batches/tokenized.tsv', encoding='utf-8')]
     all_data = sample(all_data, num_samples)
     return [u'\t'.join(get_tweet(tweet)[1:]) for tweet in all_data]
 
@@ -325,7 +325,7 @@ def analyse_auto_cluster(location):
     :param location: Location of the cluster file .txt
     """
     clusters = {}
-    for line in open(root+location):
+    for line in open(location):
         line = int(line.strip())
         if line in clusters:
             clusters[line] += 1
@@ -412,7 +412,7 @@ def get_wordnet_pairs(wordlist, text, tags, cluster):
     return ret
 
 
-def get_serelex_cluster(keyword, target='/Users/Ceca/Arne/Data/clusters/serelex', top_n=100):
+def get_serelex_cluster(keyword, target, top_n=100):
     """
     Collects a word cluster from the serelex cluster implementation. The result is transformed into a word list at the
     target location, lemmatized and sorted for impact.
@@ -443,5 +443,3 @@ def get_serelex_cluster(keyword, target='/Users/Ceca/Arne/Data/clusters/serelex'
 
 if __name__ == '__main__':
     init_logging()
-    for seed in ('love', 'war', 'hate', 'peace', 'birthday', 'murder', 'positive', 'negative', 'stress', 'pet'):
-        get_serelex_cluster(seed)

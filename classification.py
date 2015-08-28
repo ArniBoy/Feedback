@@ -7,10 +7,8 @@ import logging
 from preprocessing import POS, NEG, NEU
 from backfeed import Feeder
 from external_sources import AFinnWordList
-from util import svm_pipeline, get_final_semeval_data, f1, init_logging
+from util import svm_pipeline, get_final_semeval_data, f1, init_logging, root
 init_logging()
-
-root = '/Users/Ceca/Arne/Data'
 
 
 def get_score(model, x_test, y_test):
@@ -38,7 +36,7 @@ def run(model, x_train, y_train, x_test, y_test):
 
     # retrain routine set-up
     feed = Feeder()
-    af_wl = AFinnWordList(root+'/afinn/AFINN-111.txt')
+    af_wl = AFinnWordList(root+'Data/afinn/AFINN-111.txt')
     af_wl.add_filter_ranges(**{str(POS): (1, float('inf')),
                                str(NEG): (float('-inf'), -1),
                                str(NEU): (-1, 1)})
@@ -59,9 +57,9 @@ def run(model, x_train, y_train, x_test, y_test):
 def main():
     # load labelled data
     classes = POS | NEU | NEG
-    train_loc = root+'/twitterData/train_alternative.tsv'
-    dev_loc = root+'/twitterData/dev_alternative.tsv'
-    test_loc = root+'/twitterData/test_alternative.tsv'
+    train_loc = root+'Data/twitterData/train_alternative.tsv'
+    dev_loc = root+'Data/twitterData/dev_alternative.tsv'
+    test_loc = root+'Data/twitterData/test_alternative.tsv'
     train, dev, test = get_final_semeval_data(classes, train_loc, dev_loc, test_loc)
 
     # load model

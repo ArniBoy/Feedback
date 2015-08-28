@@ -8,10 +8,8 @@ from os import listdir, path
 from subprocess import call
 
 from preprocessing import POS, NEG, NEU
-from util import k_means_pipeline, bucket_dist, get_wordnet_pairs, init_logging
+from util import k_means_pipeline, bucket_dist, get_wordnet_pairs, init_logging, root
 init_logging()
-
-root = '/Users/Ceca/Arne/Data'
 
 
 class SentMutate(object):
@@ -133,7 +131,7 @@ class AutoCluster(SentMutate):
         # load tweets
         tmp = [
             (tweet.strip(), int(label.strip())) for tweet, label in zip(
-                open(root+'/Corpora/batches/tokenized.tsv', 'r,', 'utf-8'),
+                open(root+'Data/Corpora/batches/tokenized.tsv', 'r,', 'utf-8'),
                 open(clusters_loc, 'r,', 'utf-8'))
         ]
 
@@ -289,7 +287,7 @@ def analyse_mutator(mutator, latex=True):
     frq_pos = {}
     frq_neg = {}
     corpus_length = 0
-    for line in open(root+'/Corpora/batches/tokenized.tsv', 'r', 'utf-8'):
+    for line in open(root+'Data/Corpora/batches/tokenized.tsv', 'r', 'utf-8'):
         corpus_length += 1
         distances = mutator.apply_weighting(line, [0, 0])
         if distances[0] not in frq_pos:
@@ -351,12 +349,12 @@ def analyse_mutator(mutator, latex=True):
 
 
 if __name__ == '__main__':
-    clf = AutoCluster('/Users/Ceca/Arne/Data/logs/cluster.txt', '/Users/Ceca/Arne/Data/cluster_annotation/auto.txt')
+    clf = AutoCluster(root+'Data/logs/cluster.txt', root+'Data/cluster_annotation/auto.txt')
     cl = SerelexCluster(
-        '/Users/Ceca/Arne/Data/clusters/serelex', '/Users/Ceca/Arne/Data/clusters/serelex_annotation.txt',
-        '/Users/Ceca/Arne/Data/wordnet/wl.txt', '/Users/Ceca/Arne/Libs/WordNet-Similarity-2.05/utils/similarity.pl',
+        root+'Data/clusters/serelex', root+'Data/clusters/serelex_annotation.txt',
+        root+'Data/wordnet/wl.txt', root+'Libs/WordNet-Similarity-2.05/utils/similarity.pl',
         'res')
-    for count, l in enumerate(open('/Users/Ceca/Arne/Data/Corpora/batches/tokenized.tsv')):
+    for count, l in enumerate(open(root+'/Corpora/batches/tokenized.tsv')):
         if count > 192:
             print(l.split('\t')[0])
             print(cl.get_scores(*(l.strip().split('\t'))))
