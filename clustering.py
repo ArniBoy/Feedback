@@ -94,7 +94,7 @@ def label_counter(cluster_collection, model):
         consistency += max(label_counts.values()) / total_length
     return consistency
 
-
+# do things
 def k_means():
     k = 8
     data = get_corpus(20000)
