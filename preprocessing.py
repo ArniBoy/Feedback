@@ -100,11 +100,14 @@ def get_tweet(tweet):
              unicode, unicode, unicode
     """
     data = tweet.strip().split(u'\t')
-    if len(data) == 2:
-        t, p = data
-        l = None
-    else:
-        l, t, p = data
+    try:
+        if len(data) == 2:
+            t, p = data
+            l = None
+        else:
+            l, t, p = data
+    except ValueError:
+        logging.warn('tweet %s is not data conform!' % [tweet])
     if t != u'Not Available':
         t = pp_urls(t)        # normalizes url mentions
         t = pp_users(t)       # normalizes user mentions

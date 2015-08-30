@@ -8,7 +8,8 @@ from os import listdir, path
 from subprocess import call
 
 from preprocessing import POS, NEG, NEU
-from util import k_means_pipeline, bucket_dist, get_wordnet_pairs, init_logging, root
+from util import k_means_pipeline, bucket_dist, get_wordnet_pairs, init_logging, levenshtein, root, \
+    get_final_semeval_data, precision, f_range
 init_logging()
 
 
@@ -181,35 +182,36 @@ class AutoCluster(SentMutate):
 
 
 class SerelexCluster(SentMutate):
-    def __init__(self, clusters_loc, sentiments_loc, wordnet_loc, similarity_script, scheme):
+    def __init__(self, serelex_loc, sentiments_loc, mode, wordnet_loc='', similarity_script='', scheme=''):
         """
         Loads clusters obtained by using the serelex word net tool (http://serelex.cental.be). Uses WordNet for
         weighting, more specifically the WordNet::Similarity tool (http://wn-similarity.sourceforge.net)
-        :param clusters_loc: folder containing serelex cluster files (.scf)
+        :param serelex_loc: folder containing serelex cluster files (.scf)
         :param sentiments_loc: file containing the sentiments associated with a cluster name
+        :param mode: either levenshtein for basic weighting, or wordnet, for advanced options
+        :param wordnet_loc: precompiled wordnet word list, allows precomputing
+           'Data/wordnet/wl.txt'
+        :param similarity_script: the scirpt used to asses similarity, when using wordnet
+           'Libs/WordNet-Similarity-2.05/utils/similarity.pl'
+        :param scheme: the scoring function used in wordnet similarity
         """
         super(SerelexCluster, self).__init__()
-        # init scheme
-        schemes = ('path', 'hso', 'lch', 'lesk', 'lin', 'jcn', 'random', 'res', 'vector_pairs', 'wup')
-        self.sents = {'pos': 'positive', 'neg': 'negative', 'neut': 'neutral'}
-        if scheme not in schemes:
-            logging.warn('Scheme %s is not part of the allowed measures! Try any of \n\t%s' %
-                         (scheme, '\n\t'.join(schemes)))
+        # init mode
+        modes = ('wordnet', 'levenshtein')
+        self.mode = mode
+        if mode not in modes:
+            logging.warn('Mode %s is not part of the allowed scorers! Try any of \n\t%s' %
+                         (mode, '\n\t'.join(modes)))
 
-        # init wordnet list
-        self.wordnet_words = set()
-        for word in open(wordnet_loc):
-            self.wordnet_words.add(word.strip())
-
-        # init serelex cluster
+        # init serelex clusters
         self.clusters = {}
-        for name in [c for c in listdir(clusters_loc) if not c.startswith('.')]:
+        for name in [c for c in listdir(serelex_loc) if not c.startswith('.')]:
             cluster_name = path.splitext(name)[0]
             self.clusters[cluster_name] = []
-            for line in open(path.join(clusters_loc, name)):
+            for line in open(path.join(serelex_loc, name)):
                 self.clusters[cluster_name].append(line.strip())
-
-        # init cluster sentiment mappings
+        # init sentiment mappings
+        self.sents = {'pos': 'positive', 'neg': 'negative', 'neut': 'neutral'}
         self.sentiments = {line.split(' ')[0]: line.strip().split(' ')[1] for line in open(sentiments_loc)}
         for name in (set(self.clusters.keys()) - set(self.sentiments.keys())):
             logging.warn('No sentiment weight for cluster "%s" found!' % name)
@@ -217,22 +219,47 @@ class SerelexCluster(SentMutate):
             if sent not in self.sents.values():
                 logging.warn('Sentiment weight %s not available, please only use %s.' % (sent, self.sents.values()))
 
-        # init tempfiles
-        self.tmp_in_name = 'tmp.in'
-        self.tmp_out_name = 'tmp.out'
-        self.error_log = 'errors.log'
+        # init wordnet list, scheme, temp files, and module call function
+        if self.mode == modes[0]:
+            self.wn_words = set()
+            for word in open(wordnet_loc):
+                self.wn_words.add(word.strip())
+            schemes = ('path', 'hso', 'lch', 'lesk', 'lin', 'jcn', 'random', 'res', 'vector_pairs', 'wup')
+            if scheme not in schemes:
+                logging.warn('Scheme %s is not part of the allowed measures! Try any of \n\t%s' %
+                             (scheme, '\n\t'.join(schemes)))
+            self.tmp_in_name = 'tmp.in'
+            self.tmp_out_name = 'tmp.out'
+            self.error_log = 'errors.log'
+            self.sim_call = 'perl %s --type=WordNet::Similarity::%s --file=%s > %s 2>%s' %\
+                            (similarity_script, scheme, self.tmp_in_name, self.tmp_out_name, self.error_log)
 
-        # memorize wordnet similarity call script
-        self.sim_call = 'perl %s --type=WordNet::Similarity::%s --file=%s > %s 2>%s' %\
-                        (similarity_script, scheme, self.tmp_in_name, self.tmp_out_name, self.error_log)
+    def get_lv_score(self, tweet_text):
+        best_score = 0
+        best_name = ''
+        words = tweet_text.strip().split(' ')
+        for name, cluster in self.clusters.items():
+            cluster_max = 0
+            for word in words:
+                local_max = 0
+                for sent_word in cluster:
+                    local_max = max(local_max, levenshtein(word, sent_word))
+                cluster_max += local_max
+            cluster_max /= len(words)
+            if cluster_max > best_score:
+                best_score = cluster_max
+                best_name = name
+        if self.sentiments[best_name] == self.sents['neg']:
+            best_score *= -1
+        return best_score
 
-    def get_scores(self, tweet_text, tweet_pos):
+    def get_wn_scores(self, tweet_text, tweet_pos):
         clusters = {}
         for name, cluster in self.clusters.items():
             try:
                 cluster_score = 0
                 with open(self.tmp_in_name, 'w') as tmp_in:
-                    tmp_in.write('\n'.join(get_wordnet_pairs(self.wordnet_words, tweet_text, tweet_pos, cluster)))
+                    tmp_in.write('\n'.join(get_wordnet_pairs(self.wn_words, tweet_text, tweet_pos, cluster)))
                 call(self.sim_call, shell=True)
                 for line in open(self.tmp_out_name):
                     fields = [f for f in line.strip().split(' ') if f]
@@ -243,7 +270,7 @@ class SerelexCluster(SentMutate):
                 logging.error('%s: in tweet %s' % (type(e), tweet_text))
         return sorted(clusters.items(), key=lambda x: x[1], reverse=True)
 
-    def get_highest_diff(self, scores):
+    def get_wn_diff(self, scores):
         diff_score = scores[0][1]
         winning_sent = self.sentiments[scores[0][1]]
         for cluster_name, score in scores:
@@ -260,14 +287,26 @@ class SerelexCluster(SentMutate):
         if not self.ranges:
             raise RuntimeError("Tried to run filter without specified ranges!")
         tweet_text, tweet_pos = tweet.strip().split('\t')
-        score = self.get_highest_diff(self.get_scores(tweet_text, tweet_pos))
+        if self.mode == 'wordnet':
+            score = self.get_wn_diff(self.get_wn_scores(tweet_text, tweet_pos))
+        elif self.mode == 'levenshtein':
+            score = self.get_lv_score(tweet_text)
+        else:
+            score = 0
+            logging.warn('mode not recognized: %s' % self.mode)
         return self.ranges[str(label)][0] < score < self.ranges[str(label)][1]
 
     def apply_weighting(self, tweet, distances):
         if self.weight < 0 or self.pos_idx < 0 or self.neg_idx < 0:
             raise RuntimeError("Tried to run weighting without specified data!")
         tweet_text, tweet_pos = tweet.strip().split('\t')
-        score = self.get_highest_diff(self.get_scores(tweet_text, tweet_pos))
+        if self.mode == 'wordnet':
+            score = self.get_wn_diff(self.get_wn_scores(tweet_text, tweet_pos))
+        elif self.mode == 'levenshtein':
+            score = self.get_lv_score(tweet_text)
+        else:
+            score = 0
+            logging.warn('mode not recognized: %s' % self.mode)
         if score > 0:
             distances[self.pos_idx] += self.weight * score
         elif score < 0:
@@ -348,14 +387,41 @@ def analyse_mutator(mutator, latex=True):
                  % ((sum(pos_concat) + sum(neg_concat)) / corpus_length))
 
 
+def evaluate_mutator(mutator, threshold, min_percent, latex=True):
+    labels = (POS, NEU, NEG)
+    train_loc = root+'Data/twitterData/train_alternative.tsv'
+    dev_loc = root+'Data/twitterData/dev_alternative.tsv'
+    test_loc = root+'Data/twitterData/test_alternative.tsv'
+    train, dev, test = get_final_semeval_data(reduce(lambda x, y: x|y, labels), train_loc, dev_loc, test_loc)
+    dev_x, dev_y = dev
+    dev_x = dev_x[:300]
+    dev_y = dev_y[:300]
+    for label in labels:
+        pred_y = []
+        for tweet in dev_x:
+            pred_y.append(label if mutator.apply_filter(tweet, label) else -1)
+        if pred_y.count(label) < 0.1*len(pred_y):
+            yield str(label), ' (%.3f,0.0)' % threshold
+        yield str(label), ' (%.3f,%.4f)' % (threshold, precision(dev_y, pred_y, label))
+
+
+def test_thresholds(mutator, min_percent=0):
+    results = {str(POS): '', str(NEG): '', str(NEU): ''}
+    for threshold in f_range(0.1, 0.9, 0.05):
+        print('threshold: %.3f' % threshold)
+        mutator.add_filter_ranges(
+            **{str(POS): (threshold, float('inf')),
+               str(NEG): (float('-inf'), -1*threshold),
+               str(NEU): (-1*threshold, threshold)})
+        for label, res in evaluate_mutator(mutator, threshold, min_percent):
+            results[label] += res
+    for label, res in results.items():
+        print('%s: %s' % (label, res))
+
+
 if __name__ == '__main__':
-    clf = AutoCluster(root+'Data/logs/cluster.txt', root+'Data/cluster_annotation/auto.txt')
-    cl = SerelexCluster(
-        root+'Data/clusters/serelex', root+'Data/clusters/serelex_annotation.txt',
-        root+'Data/wordnet/wl.txt', root+'Libs/WordNet-Similarity-2.05/utils/similarity.pl',
-        'res')
-    for count, l in enumerate(open(root+'/Corpora/batches/tokenized.tsv')):
-        if count > 192:
-            print(l.split('\t')[0])
-            print(cl.get_scores(*(l.strip().split('\t'))))
-            print('')
+    cl = SerelexCluster(root+'Data/clusters/serelex',
+                        root+'Data/clusters/serelex_annotation.txt',
+                        mode='levenshtein')
+    af = AFinnWordList('/home/arne/MasterArbeit/Data/afinn/AFINN-111.txt')
+    test_thresholds(cl)

@@ -63,7 +63,7 @@ def main():
     train, dev, test = get_final_semeval_data(classes, train_loc, dev_loc, test_loc)
 
     # load model
-    model = svm_pipeline(-1)
+    model = svm_pipeline()
 
     # run main routine
     run(model, train[0], train[1], dev[0], dev[1])

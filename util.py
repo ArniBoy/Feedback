@@ -107,7 +107,6 @@ def f1(y_true, y_pred, label):
                 tn += 1
 
     if tp == 0 or fp == 0 or fn == 0:
-        logging.warn('Calculation faulty with tp=%i, fp=%i, fn=%i for label: %s' % (tp, fp, fn, label))
         micro_f1 = 0
     else:
         precision = tp / (tp+fp)
@@ -115,6 +114,22 @@ def f1(y_true, y_pred, label):
         micro_f1 = 2 * ((precision*recall) / (precision+recall))
     micro_accuracy = (tp + tn) / (tp + tn + fp + fn)
     return micro_f1, micro_accuracy
+
+
+def precision(y_true, y_pred, label):
+    tp = 0.0  # true positives
+    fp = 0.0  # false positives
+    for labels in zip(y_true, y_pred):
+        if labels[1] == label:
+            if labels[0] == label:
+                tp += 1
+            else:
+                fp += 1
+
+    if tp == 0 and fp == 0:
+        return 0
+    else:
+        return tp / (tp+fp)
 
 
 def get_final_semeval_data(classes, train_loc, dev_loc, test_loc):
@@ -225,13 +240,13 @@ def svm_pipeline(threads=-1):
         ('svm', LinearSVC())
     ])
     parameters = {
-        'features__word_ngram__tfidf__analyzer': ('word',),
-        'features__word_ngram__tfidf__max_df': (0.75,),
-        'features__word_ngram__tfidf__ngram_range': ((1, 5),),
-        'features__char_ngram__tfidf__analyzer': ('char',),
-        'features__char_ngram__tfidf__max_df': (0.75,),
-        'features__char_ngram__tfidf__ngram_range': ((1, 5),),
-        'svm__C': (0.5,)
+        'features__word_ngram__tfidf__analyzer': ['word'],
+        'features__word_ngram__tfidf__max_df': [0.75],
+        'features__word_ngram__tfidf__ngram_range': [(1, 5)],
+        'features__char_ngram__tfidf__analyzer': ['char'],
+        'features__char_ngram__tfidf__max_df': [0.75],
+        'features__char_ngram__tfidf__ngram_range': [(1, 5)],
+        'svm__C': [0.5]
     }
     return GridSearchCV(pipeline, parameters, n_jobs=threads, verbose=1)
 
@@ -270,11 +285,15 @@ def get_corpus(num_samples):
     """
     Load a subset of the sent 140 corpus. This function draws a random portion,
     as the original data seems to have a bias on position
-    :param num_samples: a random sample of this size will be extracted
+    :param num_samples: a random sample of this size will be extracted. A negative value implies that
+    everything get offered instad of just a section
     :return: The subset, as list of <tweet> tab <pos-tags> entries
     """
     all_data = [tweet.strip() for tweet in open(root+'Data/Corpora/batches/tokenized.tsv', encoding='utf-8')]
-    all_data = sample(all_data, num_samples)
+    if num_samples < 0:
+        all_data = sample(all_data, len(all_data))
+    else:
+        all_data = sample(all_data, num_samples)
     return [u'\t'.join(get_tweet(tweet)[1:]) for tweet in all_data]
 
 
@@ -334,6 +353,33 @@ def analyse_auto_cluster(location):
 
     for key in clusters.keys():
         logging.info('%i: %i' % (key, clusters[key]))
+
+
+def levenshtein(s1, s2):
+    """
+    Computes the levenshtein distance between two strings  s1 and s2. Implementation based on
+    https://en.wikibooks.org/wiki/Algorithm_Implementation/Strings/Levenshtein_distance#Python
+    :param s1: first string, the longer one. Will be adjusted if necessary.
+    :param s2: second string, the shorter one. Will be adjusted if necessary.
+    :return: modified levenshtein distance, where 'one' implies identical strings, and lower values less overlap, with
+    'zero' meaning complete difference.
+    """
+    if len(s1) < len(s2):
+        return levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    s1 = s1.lower()
+    s2 = s2.lower()
+    previous_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    return 1 - (previous_row[-1] / float(len(s1)))
 
 
 def bucket_dist(raw_dict, num_buckets):

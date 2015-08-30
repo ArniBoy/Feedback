@@ -8,11 +8,13 @@ import codecs
 
 import numpy as np
 
+from sklearn.pipeline import Pipeline
 from sklearn.cluster import DBSCAN
 from sklearn import metrics
 
+from feature_extractors import DataSeparator
 from preprocessing import parse, POS, NEG, NEU
-from util import svm_pipeline, k_means_pipeline, get_corpus, init_logging, root
+from util import svm_pipeline, k_means_pipeline, get_corpus, init_logging, root, get_feature_union, get_corpus
 init_logging()
 
 
@@ -36,24 +38,42 @@ def get_train_data():
     return semeval_train, semeval_dev, semeval_test
 
 
-def draw(feature_space):
+def draw(data, latex=True):
+    logging.info('starting distance measurement')
+    trans = Pipeline([
+        ('separate', DataSeparator()),
+        ('features', get_feature_union()),
+    ])
+    feature_space = trans.fit_transform(data)
+    distances = metrics.pairwise.pairwise_distances(feature_space, metric='cosine')
+    logging.info('distances computed')
     buckets = {}
-    distances = metrics.pairwise.pairwise_distances(feature_space, metric='manhattan')
-    logging.debug('distances computed')
     for idx_a, row in enumerate(distances):
         for idx_b, val in enumerate(row):
             if idx_a != idx_b:
-                rounded = '%.2f' % val
+                rounded = float('%.2f' % val)
                 if rounded not in buckets:
                     buckets[rounded] = 1
                 else:
                     buckets[rounded] += 1
+    vars = 0
+    num_instances = 0
+    for key, val in buckets.items():
+        num_instances += val
+        vars += key * val
+    print('average variance: %.3f' % (vars/num_instances))
     max_length = 160.0
     max_count = max(buckets.values())
-    for key in sorted(buckets.keys()):
-        num_bar = int(buckets[key] * max_length / max_count)
-        logging.info('%s: %s' % (key, num_bar * '-'))
-
+    if not latex:
+        for key in sorted(buckets.keys()):
+            num_bar = int(buckets[key] * max_length / max_count)
+            logging.info('%s: %s' % (key, num_bar * '-'))
+    else:
+        for count, key in enumerate(sorted(buckets.keys())):
+            num_bar = int(buckets[key] * max_length / max_count)
+            print('(%s,%s)' % (key, num_bar)),
+            if count % 10 == 0:
+                print('')
 
 def dbscan(feature_space):
     minimum_per_cluster = 1.0 / 4
@@ -101,6 +121,9 @@ def k_means():
     train, dev, test = get_train_data()
     baseline_clf.fit(train[0], train[1])
 
+    max_consistency = label_counter([(0, data)], baseline_clf)
+    logging.info('baseline consistency: %f' % max_consistency)
+
     tmp = [
         (tweet.strip(), int(label.strip())) for tweet, label in zip(
             codecs.open(root+'Data/Corpora/batches/tokenized.tsv', 'r,', 'utf-8'),
@@ -112,6 +135,11 @@ def k_means():
             clf[label] = [tweet]
         else:
             clf[label].append(tweet)
+    max_consistency = label_counter(clf.items(), baseline_clf)
+    logging.info('max consistency: %f' % max_consistency)
+
+
+
     for label in clf.keys():
         print(label)
         frq = {}
@@ -126,8 +154,7 @@ def k_means():
                 print('could not parse tweet %s' % tw)
         print(frq)
 
-    max_consistency = label_counter([(0, data)], baseline_clf)
-    logging.info('baseline consistency: %f' % max_consistency)
+
 
     max_clusters = ()
     km = k_means_pipeline(k)
@@ -153,3 +180,4 @@ def k_means():
 
 if __name__ == '__main__':
     k_means()
+

@@ -25,7 +25,7 @@ class DataSeparator(BaseEstimator, TransformerMixin):
     def transform(self, data):
         features = {'tweets': [], 'pos': []}
         for entry in data:
-            tweet, pos = entry.split('\t')
+            tweet, pos = entry.strip().split('\t')
             features['tweets'].append(tweet)
             features['pos'].append(pos)
         return features
