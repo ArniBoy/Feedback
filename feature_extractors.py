@@ -25,9 +25,12 @@ class DataSeparator(BaseEstimator, TransformerMixin):
     def transform(self, data):
         features = {'tweets': [], 'pos': []}
         for entry in data:
-            tweet, pos = entry.strip().split('\t')
-            features['tweets'].append(tweet)
-            features['pos'].append(pos)
+            try:
+                tweet, pos = entry.strip().split('\t')
+                features['tweets'].append(tweet)
+                features['pos'].append(pos)
+            except ValueError:
+                logging.warn('Entry %s not conform!' % [entry])
         return features
 
 

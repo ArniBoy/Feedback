@@ -6,6 +6,9 @@ import logging
 from codecs import open
 from os import listdir, path
 from subprocess import call
+import pickle
+
+from sklearn.metrics.pairwise import pairwise_distances
 
 from preprocessing import POS, NEG, NEU
 from util import k_means_pipeline, bucket_dist, get_wordnet_pairs, init_logging, levenshtein, root, \
@@ -130,55 +133,62 @@ class AutoCluster(SentMutate):
         self.clusters = k_means_pipeline(8)
 
         # load tweets
-        tmp = [
-            (tweet.strip(), int(label.strip())) for tweet, label in zip(
+        tmp = zip(*[(tweet.strip(), int(label.strip())) for tweet, label in zip(
                 open(root+'Data/Corpora/batches/tokenized.tsv', 'r,', 'utf-8'),
-                open(clusters_loc, 'r,', 'utf-8'))
-        ]
+                open(clusters_loc, 'r,', 'utf-8'))])
+        tmp[0] = tmp[0][:10000]
+        tmp[1] = tmp[1][:10000]
 
-        # print tweet class info
-        clf = {}
-        for tweet, label in tmp:
-            if label not in clf:
-                clf[label] = [tweet]
+        # load cluster class sentiment and size info
+        self.cluster_sentiment = {}
+        self.cluster_sizes = []
+        for idx, line in enumerate(open(sentiments_loc, 'r,', 'utf-8')):
+            sent, size = line.strip().split(' ')
+            if sent == 'positive':
+                self.cluster_sentiment[idx] = POS
+            elif sent == 'negative':
+                self.cluster_sentiment[idx] = NEG
+            elif sent == 'neutral':
+                self.cluster_sentiment[idx] = NEU
             else:
-                clf[label].append(tweet)
-        for label in clf.keys():
-            for tweet in clf[label]:
-                print('%s: %s' % (label, tweet))
-        exit()
-
-
-        # load cluster class sentiment info
-        self.cluster_sentiment = {idx: label.strip() for idx, label in open(sentiments_loc, 'r,', 'utf-8')}
+                logging.warn('Invalid sentiment specified: %s' % sent)
+            self.cluster_sizes.append(int(size))
+        if set(self.cluster_sentiment.keys()) != set(tmp[1]):
+            logging.warn('Inconsistency between amount of clusters and associated sentiments, '
+                         'clusters: %s sentiments: %s' % (self.cluster_sentiment.keys(), set(tmp[1])))
+        self.cluster_sizes = [float(size)/sum(self.cluster_sizes) for size in self.cluster_sizes]
 
         # train classifier
-        self.clusters.fit(*map(list, zip(*tmp)))
+        logging.info('Start training for k-means classifier..')
+        self.clusters.fit(*tmp)
+        logging.info('Finished!')
 
     def get_score(self, tweet):
-        cluster_sent = self.cluster_sentiment[self.clusters.predict(tweet)]
-        if cluster_sent == 'positive':
-            return POS
-        elif cluster_sent == 'negative':
-            return NEG
-        elif cluster_sent == 'neutral':
-            return NEU
+        distances = {POS: 0, NEG: 0}
+        centers = self.clusters.transform([tweet.strip()])[0]  # note, high distance --> not similar
+        for idx, center_dist in enumerate(centers):
+            distances[self.cluster_sentiment[idx]] += center_dist * self.cluster_sizes[idx] / sum(centers)
+        if distances[POS] < distances[NEG]:
+            # positive is closer
+            return (distances[POS] - distances[NEG]) * -1
         else:
-            logging.warn('Input %s not format conform!' % cluster_sent)
+            # negative is closer
+            return (distances[NEG] - distances[POS])
 
     def apply_filter(self, tweet, label):
-        tweet_text = tweet.split('\t')[0]
-        return self.get_score(tweet_text) == label
+        if not self.ranges:
+            raise RuntimeError("Tried to run filter without specified ranges!")
+        score = self.get_score(tweet)
+        return self.ranges[str(label)][0] < score < self.ranges[str(label)][1]
 
     def apply_weighting(self, tweet, distances):
-        tweet_text = tweet.split('\t')[0]
         if self.weight < 0 or self.pos_idx < 0 or self.neg_idx < 0:
             raise RuntimeError("Tried to run weighting without specified data!")
-        verdict = self.get_score(tweet_text)
-        if verdict == POS:
-            distances[self.pos_idx] += self.weight
-        elif verdict == NEG:
-            distances[self.neg_idx] += self.weight
+        score = self.get_score(tweet)
+        if score > 0:
+            distances[self.pos_idx] += score * self.weight
+        else:
+            distances[self.neg_idx] += score * -1 * self.weight
 
 
 class SerelexCluster(SentMutate):
@@ -315,33 +325,36 @@ class SerelexCluster(SentMutate):
             pass  # neutral classification
 
 
-def analyse_mutator(mutator, latex=True):
+def analyse_mutator(mutator, max_length=50000, latex=True):
     """
     Runs a raw weighting scheme for the specified mutator and prints
     interesting data
     :param mutator: SentMutator instance which is about to be analysed
     :param latex: if true, the output is printed latex pgf plot conform
     """
-    mutator.add_weight(1, (1, 2))
+    mutator.add_weight(1, (POS, NEG))
     frq_pos = {}
     frq_neg = {}
     corpus_length = 0
+
     for line in open(root+'Data/Corpora/batches/tokenized.tsv', 'r', 'utf-8'):
         corpus_length += 1
-        distances = mutator.apply_weighting(line, [0, 0])
-        if distances[0] not in frq_pos:
-            frq_pos[distances[0]] = 1
-        else:
-            frq_pos[distances[0]] += 1
+        if corpus_length >= max_length:
+            break
+        distances = [0, 0]
+        mutator.apply_weighting(line, distances)
+        if distances[0] != 0:
+            if distances[0] not in frq_pos:
+                frq_pos[distances[0]] = 1
+            else:
+                frq_pos[distances[0]] += 1
+        if distances[1] != 0:
+            if distances[1] not in frq_neg:
+                frq_neg[distances[1]] = 1
+            else:
+                frq_neg[distances[1]] += 1
 
-        if distances[1] not in frq_neg:
-            frq_neg[distances[1]] = 1
-        else:
-            frq_neg[distances[1]] += 1
-    frq_pos.pop(0)
-    frq_neg.pop(0)
-
-    logging.info('\npositive distribution:')
+    logging.info('\npositive distribution, size: %i' % sum(frq_pos.values()))
     pos_dist = bucket_dist(frq_pos, 25)
     if latex:
         count = 0
@@ -356,7 +369,7 @@ def analyse_mutator(mutator, latex=True):
         for value in sorted(pos_dist.keys()):
             logging.info('%s: %s' % (value, pos_dist[value]))
 
-    logging.info('\nnegative distribution:')
+    logging.info('\nnegative distribution, size: %i' % sum(frq_neg.values()))
     neg_dist = bucket_dist(frq_neg, 25)
     if latex:
         count = 0
@@ -394,20 +407,20 @@ def evaluate_mutator(mutator, threshold, min_percent, latex=True):
     test_loc = root+'Data/twitterData/test_alternative.tsv'
     train, dev, test = get_final_semeval_data(reduce(lambda x, y: x|y, labels), train_loc, dev_loc, test_loc)
     dev_x, dev_y = dev
-    dev_x = dev_x[:300]
-    dev_y = dev_y[:300]
     for label in labels:
         pred_y = []
         for tweet in dev_x:
             pred_y.append(label if mutator.apply_filter(tweet, label) else -1)
-        if pred_y.count(label) < 0.1*len(pred_y):
+        if pred_y.count(label) < min_percent*len(pred_y):
             yield str(label), ' (%.3f,0.0)' % threshold
-        yield str(label), ' (%.3f,%.4f)' % (threshold, precision(dev_y, pred_y, label))
+        else:
+            yield str(label), ' (%.3f,%.4f)' % (threshold, precision(dev_y, pred_y, label))
 
 
-def test_thresholds(mutator, min_percent=0):
+def test_thresholds(mutator, min_percent=0.1):
     results = {str(POS): '', str(NEG): '', str(NEU): ''}
-    for threshold in f_range(0.1, 0.9, 0.05):
+    #for threshold in f_range(0.1, 0.9, 0.05): serelex
+    for threshold in f_range(0., 0.04, 0.004):
         print('threshold: %.3f' % threshold)
         mutator.add_filter_ranges(
             **{str(POS): (threshold, float('inf')),
@@ -424,4 +437,7 @@ if __name__ == '__main__':
                         root+'Data/clusters/serelex_annotation.txt',
                         mode='levenshtein')
     af = AFinnWordList('/home/arne/MasterArbeit/Data/afinn/AFINN-111.txt')
-    test_thresholds(cl)
+    km = pickle.load(open('km.model', 'rb'))
+    # km = AutoCluster(root+'Data/clusters/auto_labels.txt', root+'Data/clusters/auto_annotation.txt')
+    test_thresholds(km)
+    #analyse_mutator(km)
