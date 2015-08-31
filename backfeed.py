@@ -15,7 +15,7 @@ class Feeder:
     """
     Class which encapsulates the feedback module.
     """
-    def __init__(self, limit=20000):
+    def __init__(self, limit=5000):
         """
         Constructor for a Feeder instance
         :param limit: Cutoff for testing, lower value improves speed

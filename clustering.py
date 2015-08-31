@@ -61,7 +61,7 @@ def draw(data, latex=True):
     for key, val in buckets.items():
         num_instances += val
         vars += key * val
-    print('average variance: %.3f' % (vars/num_instances))
+    logging.info('average variance: %.3f' % (vars/num_instances))
     max_length = 160.0
     max_count = max(buckets.values())
     if not latex:
@@ -69,11 +69,13 @@ def draw(data, latex=True):
             num_bar = int(buckets[key] * max_length / max_count)
             logging.info('%s: %s' % (key, num_bar * '-'))
     else:
+        to_print = ''
         for count, key in enumerate(sorted(buckets.keys())):
             num_bar = int(buckets[key] * max_length / max_count)
-            print('(%s,%s)' % (key, num_bar)),
+            to_print += '(%s,%s)' % (key, num_bar)
             if count % 10 == 0:
-                print('')
+                to_print += '\n'
+        logging.info(to_print)
 
 def dbscan(feature_space):
     minimum_per_cluster = 1.0 / 4
@@ -138,10 +140,8 @@ def k_means():
     max_consistency = label_counter(clf.items(), baseline_clf)
     logging.info('max consistency: %f' % max_consistency)
 
-
-
     for label in clf.keys():
-        print(label)
+        logging.info(label)
         frq = {}
         for tw in clf[label]:
             try:
@@ -151,10 +151,8 @@ def k_means():
                 else:
                     frq[est] = 1
             except ValueError:
-                print('could not parse tweet %s' % tw)
-        print(frq)
-
-
+                logging.warn('could not parse tweet %s' % tw)
+        logging.info(frq)
 
     max_clusters = ()
     km = k_means_pipeline(k)
@@ -179,5 +177,5 @@ def k_means():
 
 
 if __name__ == '__main__':
-    k_means()
+    pass
 

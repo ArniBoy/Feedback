@@ -341,6 +341,8 @@ def analyse_mutator(mutator, max_length=50000, latex=True):
         corpus_length += 1
         if corpus_length >= max_length:
             break
+        if corpus_length % 500 == 0:
+            logging.info(corpus_length)
         distances = [0, 0]
         mutator.apply_weighting(line, distances)
         if distances[0] != 0:
@@ -419,9 +421,10 @@ def evaluate_mutator(mutator, threshold, min_percent, latex=True):
 
 def test_thresholds(mutator, min_percent=0.1):
     results = {str(POS): '', str(NEG): '', str(NEU): ''}
-    #for threshold in f_range(0.1, 0.9, 0.05): serelex
-    for threshold in f_range(0., 0.04, 0.004):
-        print('threshold: %.3f' % threshold)
+    for threshold in f_range(0.1, 0.9, 0.05):  # serelex
+    #for threshold in f_range(0.1, 4, 0.2):  # afinn
+    #for threshold in f_range(0., 0.04, 0.004):  # unsupervised
+        logging.info('threshold: %.3f' % threshold)
         mutator.add_filter_ranges(
             **{str(POS): (threshold, float('inf')),
                str(NEG): (float('-inf'), -1*threshold),
@@ -429,15 +432,8 @@ def test_thresholds(mutator, min_percent=0.1):
         for label, res in evaluate_mutator(mutator, threshold, min_percent):
             results[label] += res
     for label, res in results.items():
-        print('%s: %s' % (label, res))
+        logging.info('%s: %s' % (label, res))
 
 
 if __name__ == '__main__':
-    cl = SerelexCluster(root+'Data/clusters/serelex',
-                        root+'Data/clusters/serelex_annotation.txt',
-                        mode='levenshtein')
-    af = AFinnWordList('/home/arne/MasterArbeit/Data/afinn/AFINN-111.txt')
-    km = pickle.load(open('km.model', 'rb'))
-    # km = AutoCluster(root+'Data/clusters/auto_labels.txt', root+'Data/clusters/auto_annotation.txt')
-    test_thresholds(km)
-    #analyse_mutator(km)
+    pass

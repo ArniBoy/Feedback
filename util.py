@@ -167,10 +167,6 @@ def get_feature_union():
     """
     return FeatureUnion(
         transformer_list=[
-            ('length', Pipeline([
-                ('selector', ItemSelector(key='tweets')),
-                ('counter', LengthFeatures()),
-            ])),
             ('word_ngram', Pipeline([
                 ('selector', ItemSelector(key='tweets')),
                 ('tfidf', TfidfVectorizer()),
@@ -178,6 +174,10 @@ def get_feature_union():
             ('char_ngram', Pipeline([
                 ('selector', ItemSelector(key='tweets')),
                 ('tfidf', TfidfVectorizer()),
+            ])),
+            ('length', Pipeline([
+                ('selector', ItemSelector(key='tweets')),
+                ('counter', LengthFeatures()),
             ])),
             ('all_caps_count', Pipeline([
                 ('selector', ItemSelector(key='tweets')),
@@ -488,25 +488,3 @@ def get_serelex_cluster(keyword, target, top_n=100):
 
 if __name__ == '__main__':
     init_logging()
-    pos = {0.0000: 1, 0.0014: 226, 0.0028: 273, 0.0042: 298, 0.0056: 323,
-           0.0070: 318, 0.0083: 342, 0.0097: 385, 0.0111: 426, 0.0125: 472,
-           0.0139: 599, 0.0153: 569, 0.0167: 707, 0.0181: 814, 0.0195: 900,
-           0.0208: 1031, 0.0222: 1340, 0.0236: 1531, 0.0250: 1820, 0.0264: 2310,
-           0.0278: 2587, 0.0292: 4146, 0.0306: 8168, 0.0320: 10009, 0.0333: 5978,
-           0.0347: 1462,}
-    neg = {0.0000: 1, 0.0015: 283, 0.0031: 227, 0.0046: 201, 0.0061: 164,
-           0.0077: 201, 0.0092: 174, 0.0107: 164, 0.0122: 142, 0.0138: 121,
-           0.0153: 154, 0.0168: 147, 0.0183: 128, 0.0199: 126, 0.0214: 101,
-           0.0229: 94, 0.0244: 105, 0.0260: 92, 0.0275: 89, 0.0290: 63,
-           0.0306: 57, 0.0321: 42, 0.0336: 43, 0.0351: 29, 0.0367: 14,
-           0.0382: 1}
-    pos_balance = sum(pos.values())
-    neg_balance = sum(neg.values())
-    pos = {float(key): float(val)/pos_balance for key, val in pos.items()}
-    neg = {float(key): float(val)/neg_balance for key, val in neg.items()}
-    for key in sorted(pos.keys()):
-        print('(%.6f,%.6f) ' % (key, pos[key])),
-    print('')
-    for key in sorted(neg.keys()):
-        print('(%.6f,%.6f) ' % (key, neg[key])),
-
